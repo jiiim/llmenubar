@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: Copyright James Martin
+# SPDX-License-Identifier: MIT
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: the attribution check reads commit messages across
+          # the pull request's range, which a shallow clone does not contain.
+          fetch-depth: 0
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          swift --version
+          test "$(uname -m)" = arm64
+
+      - name: Check copyright notices
+        run: ./scripts/check-copyright.sh
+
+      - name: Check commit attribution
+        if: github.event_name == 'pull_request'
+        run: |
+          ./scripts/check-commit-attribution.sh \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
+      - name: Check licensing
+        run: |
+          python3 -m venv "$RUNNER_TEMP/reuse-venv"
+          "$RUNNER_TEMP/reuse-venv/bin/pip" install --disable-pip-version-check "reuse[charset-normalizer]==6.2.0"
+          "$RUNNER_TEMP/reuse-venv/bin/reuse" lint
+
+      - name: Run tests
+        run: make test
+
+      - name: Build release bundle
+        # No VERSION/BUILD_NUMBER: the Makefile reads both from
+        # Resources/Info.plist, so the verification below compares the plist
+        # against the expected values rather than against itself.
+        run: make release-bundle
+
+      - name: Verify release bundle
+        run: |
+          app_path='.build/release/LLMenuBar.app'
+          executable_path="$app_path/Contents/MacOS/llmenubar"
+          plist_path="$app_path/Contents/Info.plist"
+
+          test "$(plutil -extract CFBundleIdentifier raw "$plist_path")" = com.jiiim.llmenubar
+          test "$(plutil -extract CFBundleShortVersionString raw "$plist_path")" = 0.0.1
+          test "$(plutil -extract CFBundleVersion raw "$plist_path")" = 1
+          test "$(lipo -archs "$executable_path")" = arm64
+          codesign --verify --deep --strict --verbose=2 "$app_path"
