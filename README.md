@@ -103,7 +103,7 @@ The Settings window keeps a draft until you press **Apply**; closing it or press
 - **SSD Cache**: the cache size, its daily write budget, and whether it is kept across restarts.
 - **API**: the OpenAI and Anthropic endpoints to copy, including this Mac's network names when Splash listens on every network, an optional API key (requested in the browser chat sidebar), and the model names clients may request, including local file names.
 - **Requests**: thinking defaults, request limits, and how the engine schedules requests.
-- **Diagnostics**: where the log is kept and how large it may grow, and a switch to make the engine record a crash trace (`SPLASH_CRASH_TRACE=1`).
+- **Diagnostics**: where the log is kept and how large it may grow, and a switch to make the engine record a crash trace.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/jiiim/llmenubar-arr/main/images/settings-general-00A.png" width="688" alt="Settings | General Pane">

@@ -7,6 +7,7 @@ import SwiftUI
 struct InitialSetupView: View {
     /// How the window is told apart from every other.
     static let windowIdentifier = NSUserInterfaceItemIdentifier("llmenubar.initialSetup")
+    static let contentWidth: CGFloat = 540
 
     let onContinue: (
         _ splashPath: String,
@@ -22,6 +23,9 @@ struct InitialSetupView: View {
     @State private var foundInShell: ModelCache.Location?
 
     @State private var splashPath = ""
+    /// The heights of the scrolling steps and of the buttons below them.
+    @State private var stepsHeight: CGFloat = 700
+    @State private var buttonsHeight: CGFloat = 60
     /// Splash installs found on this Mac, with their versions. Nil until the
     /// search, which runs each one, has finished.
     @State private var installs: [SplashInstall]?
@@ -74,7 +78,7 @@ struct InitialSetupView: View {
         return nil
     }
 
-    var body: some View {
+    private var steps: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Set Up LLMenuBar")
@@ -91,28 +95,67 @@ struct InitialSetupView: View {
             section("Large Language Model") {
                 modelRows
             }
-
-            HStack {
-                Button("Quit") {
-                    // Routed through the delegate so the quit policy has one
-                    // entry point. It always proceeds from here: the server
-                    // cannot be starting or running before setup completes.
-                    NSApp.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil)
-                }
-                Spacer()
-                if let blocker {
-                    Text(blocker)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Button("Continue", action: continueSetup)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canContinue)
-            }
         }
-        .padding(24)
-        .frame(width: 540)
+    }
+
+    private var buttons: some View {
+        HStack {
+            Button("Quit") {
+                // Routed through the delegate so the quit policy has one
+                // entry point. It always proceeds from here: the server
+                // cannot be starting or running before setup completes.
+                NSApp.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil)
+            }
+            Spacer()
+            if let blocker {
+                Text(blocker)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button("Continue", action: continueSetup)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canContinue)
+        }
+    }
+
+    /// The tallest the window may be: the screen's usable area, under the menu
+    /// bar and above the Dock, less the title bar.
+    private var tallestContent: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? .greatestFiniteMagnitude
+        let frame = NSRect(x: 0, y: 0, width: Self.contentWidth, height: screen)
+        return NSWindow.contentRect(forFrameRect: frame, styleMask: [.titled, .closable]).height
+    }
+
+    /// The steps scroll when they do not fit; the buttons stay in view.
+    private var scrollHeight: CGFloat {
+        SetupWindowSizing.scrollHeight(
+            steps: stepsHeight,
+            buttons: buttonsHeight,
+            tallest: tallestContent
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                steps
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+                    .padding(.bottom, 20)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stepsHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: scrollHeight)
+            if SetupWindowSizing.scrolls(steps: stepsHeight, buttons: buttonsHeight, tallest: tallestContent) {
+                Divider()
+            }
+            buttons
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { buttonsHeight = $0 }
+        }
+        .frame(width: Self.contentWidth)
         .task { await refreshInstalls() }
         // Restarts each time the window comes to the front or leaves it, so
         // while it is behind something there is no timer at all.
@@ -651,5 +694,18 @@ private extension View {
             self
             OrDivider()
         }
+    }
+}
+
+/// How tall the setup window's scrolling part is. The window is as tall as its
+/// steps and buttons need, up to the height the screen allows; past that the
+/// steps scroll and the buttons stay in view.
+enum SetupWindowSizing {
+    static func scrollHeight(steps: CGFloat, buttons: CGFloat, tallest: CGFloat) -> CGFloat {
+        max(0, min(steps, tallest - buttons))
+    }
+
+    static func scrolls(steps: CGFloat, buttons: CGFloat, tallest: CGFloat) -> Bool {
+        steps > tallest - buttons
     }
 }
