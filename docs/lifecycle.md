@@ -50,6 +50,15 @@ can miss on macOS. There remains a race if a different process takes
 the port after that probe; HTTP status alone does not prove socket ownership.
 The child's eventual bind failure is handled as an exit.
 
+A server on a UNIX socket (`--host unix:PATH`) binds no port, so the check asks
+about the socket instead: the path is taken while something accepts connections
+there, or while a Splash holds `PATH.lock`. Splash takes that lock before it
+binds and keeps it until it has removed the socket, so the lock is what shows a
+server still loading its model, when nothing accepts yet. A socket file with no
+listener and no lock is the leftover of a killed server, which the next one
+replaces. Readiness is then polled by a request over the socket, since
+`URLSession` takes no socket path.
+
 The launch's port check runs on the main actor. An address is probed without a
 lookup; only a host name is resolved, and a host name that resolves slowly can
 hold the interface for that long. Moving the check off the main actor needs a

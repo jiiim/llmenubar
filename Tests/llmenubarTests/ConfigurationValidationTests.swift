@@ -291,6 +291,94 @@ final class ConfigurationValidationTests: XCTestCase {
         XCTAssertEqual(config.validationErrors(derived: derived), [:])
     }
 
+    func testCachedStatesNeedABuildThatTakesThem() {
+        var derived = SplashDerivedState()
+        derived.build = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--port", "--host"])
+        var config = valid()
+        XCTAssertEqual(config.validationErrors(derived: derived), [:], "the default needs no option")
+
+        config.cachedStates = .exact
+        XCTAssertTrue(config.validationErrors(derived: derived)[.cachedStates]?.contains("--cached-states") == true)
+        XCTAssertEqual(SettingsPane.containing(.cachedStates), .memory)
+
+        derived.build = SplashBuild(identity: .splash(version: "1.7.0"), serveFlags: ["--model", "--port", "--host", "--cached-states"])
+        XCTAssertEqual(config.validationErrors(derived: derived), [:])
+    }
+
+    func testAnEffortForEveryRequestNeedsABuildThatTakesIt() {
+        var derived = SplashDerivedState()
+        derived.build = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--port", "--host", "--default-reasoning-effort"])
+        var config = valid()
+        config.reasoningEffort = .low
+        XCTAssertEqual(config.validationErrors(derived: derived), [:], "an effort for requests that set none is old")
+
+        config.reasoningScope = .everyRequest
+        XCTAssertTrue(config.validationErrors(derived: derived)[.reasoningEffort]?.contains("--reasoning-effort") == true)
+        XCTAssertEqual(SettingsPane.containing(.reasoningEffort), .requests)
+
+        config.reasoningEffort = .modelDefault
+        XCTAssertEqual(config.validationErrors(derived: derived), [:], "no effort, no option")
+
+        derived.build = SplashBuild(identity: .splash(version: "1.7.0"), serveFlags: ["--model", "--port", "--host", "--reasoning-effort"])
+        config.reasoningEffort = .low
+        XCTAssertEqual(config.validationErrors(derived: derived), [:])
+    }
+
+    func testAChatTemplateMustBeAFileThatCanBeRead() throws {
+        var config = valid()
+        config.chatTemplatePath = "relative.jinja"
+        XCTAssertNotNil(config.validationErrors()[.chatTemplatePath], "a relative path is not what the Choose button stores")
+        XCTAssertEqual(SettingsPane.containing(.chatTemplatePath), .model)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("llmenubar-template-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("chat.jinja")
+
+        config.chatTemplatePath = file.path
+        XCTAssertNotNil(SplashDerivedState.compute(for: config).chatTemplateIssue, "a file that is not there")
+        try Data("{{ messages }}".utf8).write(to: file)
+        XCTAssertNil(SplashDerivedState.compute(for: config).chatTemplateIssue)
+
+        var derived = SplashDerivedState()
+        derived.chatTemplateIssue = "Choose a readable chat template file."
+        XCTAssertNotNil(config.validationErrors(derived: derived)[.chatTemplatePath])
+
+        derived = SplashDerivedState()
+        derived.build = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--port", "--host"])
+        XCTAssertTrue(config.validationErrors(derived: derived)[.chatTemplatePath]?.contains("--chat-template-file") == true)
+    }
+
+    func testASocketHostIsCheckedAsAPathAndNeedsASplashThatTakesIt() throws {
+        // Short, because a socket path holds at most 103 bytes and the
+        // temporary directory's own name is longer than that.
+        let folder = URL(fileURLWithPath: "/tmp/llmb-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        var config = valid()
+        config.host = "unix:" + folder.appendingPathComponent("s.sock").path
+        XCTAssertNil(config.validationErrors()[.host], "an uninspected build is given the benefit of the doubt")
+
+        config.host = "unix:"
+        XCTAssertNotNil(config.validationErrors()[.host])
+        config.host = "unix:relative.sock"
+        XCTAssertNotNil(config.validationErrors()[.host])
+        config.host = "unix:/no/such/folder/s.sock"
+        XCTAssertTrue(config.validationErrors()[.host]?.contains("folder") == true)
+
+        config.host = "unix:" + folder.appendingPathComponent("a b.sock").path
+        XCTAssertNil(config.validationErrors()[.host], "spaces are fine in a path")
+
+        var derived = SplashDerivedState()
+        derived.build = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--port", "--host", "--default-reasoning-effort"])
+        XCTAssertTrue(config.validationErrors(derived: derived)[.host]?.contains("1.7.0") == true)
+
+        derived.build = SplashBuild(identity: .splash(version: "1.7.0"), serveFlags: ["--model", "--port", "--host", "--reasoning-effort"])
+        XCTAssertNil(config.validationErrors(derived: derived)[.host])
+    }
+
     func testAnUninspectedBuildIsGivenTheBenefitOfTheDoubt() {
         var config = valid()
         config.queueSize = "8"

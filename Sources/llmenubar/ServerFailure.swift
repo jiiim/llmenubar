@@ -100,6 +100,12 @@ struct ServerLaunchFailure: Equatable, Identifiable {
     /// The pane a failure message is about, judged by what it names.
     private static func destination(for message: String) -> ServerSettingsDestination {
         let lowercased = message.lowercased()
+        // What only one pane sets is named first, so a message that also says
+        // "model" in passing still opens the pane that can fix it.
+        if lowercased.contains("socket") { return .server }
+        if lowercased.contains("chat template") { return .model }
+        if lowercased.contains("cached") { return .memory }
+        if lowercased.contains("reasoning") || lowercased.contains("thinking") { return .requests }
         if lowercased.contains("model") || lowercased.contains("projector")
             || lowercased.contains("draft") {
             return .model

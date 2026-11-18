@@ -101,6 +101,8 @@ final class HealthChecker {
     private var healthTimer: DispatchSourceTimer?
     private var readyURL: URL?
     private var livenessURL: URL?
+    /// Set instead of the two URLs when Splash listens on a UNIX socket.
+    private var socketPath: String?
     private var startupBegan: Date?
     private var stallAdvisoryPosted = false
 
@@ -122,6 +124,19 @@ final class HealthChecker {
     func startPolling(readyURL: URL, livenessURL: URL) {
         self.readyURL = readyURL
         self.livenessURL = livenessURL
+        socketPath = nil
+        beginPolling()
+    }
+
+    /// The same, for a Splash that listens on a UNIX socket.
+    func startPolling(socketPath: String) {
+        self.socketPath = socketPath
+        readyURL = nil
+        livenessURL = nil
+        beginPolling()
+    }
+
+    private func beginPolling() {
         consecutiveFailures = 0
         startupBegan = Date()
         stallAdvisoryPosted = false
@@ -136,6 +151,7 @@ final class HealthChecker {
         consecutiveFailures = 0
         readyURL = nil
         livenessURL = nil
+        socketPath = nil
         startupBegan = nil
         stallAdvisoryPosted = false
     }
@@ -180,55 +196,76 @@ final class HealthChecker {
             consecutiveFailures = 0
             return
         }
-        guard let url = isStartingUp?() == true ? readyURL : livenessURL else { return }
+        let starting = isStartingUp?() == true
         let issued = generation
-        let req = URLRequest(url: url, timeoutInterval: 2)
-        Self.session.dataTask(with: req) { [weak self] _, response, error in
-            guard let s = self else { return }
-            DispatchQueue.main.async {
-                // Superseded by a stop, a restart, or a cadence change.
-                guard issued == s.generation else { return }
-                if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                    // Server is alive and answering.
-                    s.consecutiveFailures = 0
-                    if s.isStartingUp?() == true {
-                        // PID is resolved by the orchestrator; we just signal success.
-                        s.startupBegan = nil
-                        s.onHealthSuccess?()
-                        // The lifecycle callback may synchronously stop or replace
-                        // this run. Do not recreate its timer after that decision.
-                        guard issued == s.generation else { return }
-                        s.scheduleHealthTimer(
-                            interval: s.steadyInterval,
-                            firstDeadline: .now() + .seconds(s.steadyInterval))
-                    }
-                } else {
-                    let errMsg = error.map { $0.localizedDescription }
-                        ?? "HTTP \(String(describing: (response as? HTTPURLResponse)?.statusCode))"
-                    // If it was running and now unreachable, report failure —
-                    // but only once a run of polls has failed, so a single
-                    // stalled request cannot kill a working server.
-                    if s.isRunning?() == true, s.isPaused?() != true {
-                        s.consecutiveFailures += 1
-                        if s.consecutiveFailures >= s.failureThreshold {
-                            s.consecutiveFailures = 0
-                            s.onUnreachable?(
-                                "unreachable for \(s.failureThreshold) checks: \(errMsg)"
-                            )
-                        }
-                    }
-                    guard issued == s.generation else { return }
-                    // If still starting, keep trying. Model loading and Metal
-                    // residency happen before the listener exists. Once past the
-                    // advisory interval, say so once — and keep polling.
-                    if s.isStartingUp?() == true, !s.stallAdvisoryPosted,
-                       let began = s.startupBegan,
-                       Date().timeIntervalSince(began) >= s.stallAdvisoryInterval {
-                        s.stallAdvisoryPosted = true
-                        s.onStartupStalled?()
+        if let socketPath {
+            let target = starting ? "/ready" : "/health"
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let result = UnixSocket.status(at: socketPath, target: target, timeout: 2)
+                guard let s = self else { return }
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let code): s.handleAnswer(issued: issued, statusCode: code, errorText: nil)
+                    case .failure(let error): s.handleAnswer(issued: issued, statusCode: nil, errorText: "\(error)")
                     }
                 }
             }
+            return
+        }
+        guard let url = starting ? readyURL : livenessURL else { return }
+        let req = URLRequest(url: url, timeoutInterval: 2)
+        Self.session.dataTask(with: req) { [weak self] _, response, error in
+            guard let s = self else { return }
+            let code = (response as? HTTPURLResponse)?.statusCode
+            let text = error.map { $0.localizedDescription }
+            DispatchQueue.main.async { s.handleAnswer(issued: issued, statusCode: code, errorText: text) }
         }.resume()
+    }
+
+    /// What a poll found: a status code, or the reason there is none. Always on
+    /// the main queue.
+    private func handleAnswer(issued: Int, statusCode: Int?, errorText: String?) {
+        let s = self
+        // Superseded by a stop, a restart, or a cadence change.
+        guard issued == s.generation else { return }
+        if statusCode == 200 {
+            // Server is alive and answering.
+            s.consecutiveFailures = 0
+            if s.isStartingUp?() == true {
+                // PID is resolved by the orchestrator; we just signal success.
+                s.startupBegan = nil
+                s.onHealthSuccess?()
+                // The lifecycle callback may synchronously stop or replace
+                // this run. Do not recreate its timer after that decision.
+                guard issued == s.generation else { return }
+                s.scheduleHealthTimer(
+                    interval: s.steadyInterval,
+                    firstDeadline: .now() + .seconds(s.steadyInterval))
+            }
+        } else {
+            let errMsg = errorText ?? "HTTP \(String(describing: statusCode))"
+            // If it was running and now unreachable, report failure —
+            // but only once a run of polls has failed, so a single
+            // stalled request cannot kill a working server.
+            if s.isRunning?() == true, s.isPaused?() != true {
+                s.consecutiveFailures += 1
+                if s.consecutiveFailures >= s.failureThreshold {
+                    s.consecutiveFailures = 0
+                    s.onUnreachable?(
+                        "unreachable for \(s.failureThreshold) checks: \(errMsg)"
+                    )
+                }
+            }
+            guard issued == s.generation else { return }
+            // If still starting, keep trying. Model loading and Metal
+            // residency happen before the listener exists. Once past the
+            // advisory interval, say so once — and keep polling.
+            if s.isStartingUp?() == true, !s.stallAdvisoryPosted,
+               let began = s.startupBegan,
+               Date().timeIntervalSince(began) >= s.stallAdvisoryInterval {
+                s.stallAdvisoryPosted = true
+                s.onStartupStalled?()
+            }
+        }
     }
 }

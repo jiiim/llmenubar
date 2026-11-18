@@ -9,14 +9,27 @@ extension SettingsView {
         Form {
             paneIntro(
                 "Requests",
-                "What the engine does with a request: how much it thinks by default, the limits requests meet, and how it shares time between them."
+                "What the engine does with a request: how much it thinks, the limits requests meet, and how it shares time between them."
             )
 
             Section("Thinking") {
                 Picker("Thinking", selection: $editor.draft.reasoningEffort) {
                     ForEach(ServerConfiguration.ReasoningEffort.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                .help("How much the model thinks for requests that do not say.")
+                .help("How much the model thinks.")
+                Picker("Applies to", selection: $editor.draft.reasoningScope) {
+                    ForEach(ServerConfiguration.ReasoningScope.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .disabled(editor.draft.reasoningEffort == .modelDefault)
+                .help("A request that sets its own effort keeps it, unless this is Every request.")
+                if editor.draft.reasoningEffort != .modelDefault, editor.draft.reasoningScope == .everyRequest {
+                    Text("Every request thinks at this effort, whatever the client asks. Off stops thinking for clients that ask for it on every turn. A model that decides for itself whether to think, such as Flint, does not start with this.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if let error = validationErrors[.reasoningEffort] {
+                    validationLabel(error, for: .reasoningEffort)
+                }
                 textRow(
                     "Thinking tokens",
                     text: $editor.draft.thinkingTokenBudget,

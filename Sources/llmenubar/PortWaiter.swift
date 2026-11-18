@@ -60,6 +60,12 @@ final class PortWaiter {
     /// On macOS a reusable bind may also succeed beside a listener on a wider
     /// or narrower address. A bounded connection probe rejects that overlap.
     nonisolated static func isListenPortAvailable(host: String, port: Int) -> Bool {
+        // A socket binds no port. It is taken while something accepts there or
+        // a Splash holds its lock, as one does while its model loads; the file
+        // a killed server leaves behind is replaced by the next one.
+        if let socketPath = ListenAddress(host).socketPath {
+            return !UnixSocket.isAccepting(at: socketPath) && !UnixSocket.isLockHeld(for: socketPath)
+        }
         // Out of range, or 0 (which always binds to an ephemeral port and would
         // report a meaningless "available"): let launch surface the real error.
         guard let p = UInt16(exactly: port), p > 0 else { return true }

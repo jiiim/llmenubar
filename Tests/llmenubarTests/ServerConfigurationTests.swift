@@ -165,6 +165,8 @@ final class ServerConfigurationTests: XCTestCase {
         XCTAssertEqual(config.port, 8_000, "a value of the wrong type falls back")
         XCTAssertEqual(config.kvFormat, .standard, "an unknown choice falls back")
         XCTAssertEqual(config.activations, .standard, "a saved configuration without the option reads as default")
+        XCTAssertEqual(config.cachedStates, .standard, "a saved configuration without the option reads as default")
+        XCTAssertEqual(config.reasoningScope, .requestsWithoutOne, "a saved configuration without the option keeps its effort as the default")
         XCTAssertEqual(config.host, "127.0.0.1")
         XCTAssertTrue(config.chatPageEnabled)
     }
@@ -261,5 +263,11 @@ final class ServerConfigurationTests: XCTestCase {
         let keys = defaults.dictionaryRepresentation().keys.filter { $0.contains("config") || $0.contains("llmenubar") }
         XCTAssertTrue(keys.contains("llmenubar.config"))
         XCTAssertFalse(keys.contains { $0.contains("dsmenubar") })
+    }
+
+    func testTheCachedStatesDefaultIsNotCalledEightBitOnAnEngineWithoutTheOption() {
+        XCTAssertEqual(ServerConfiguration.CachedStates.standard.title(engineHasOption: true), "Engine default (8-bit)")
+        XCTAssertEqual(ServerConfiguration.CachedStates.standard.title(engineHasOption: false), "Engine default (as Recurrent state)")
+        XCTAssertEqual(ServerConfiguration.CachedStates.exact.title(engineHasOption: false), "Exact")
     }
 }

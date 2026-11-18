@@ -242,8 +242,13 @@ final class ServerManager: ObservableObject {
             send(.launched(id, pid))
         case .poll:
             if let snapshot = runConfiguration { startupProgress.start(configuration: snapshot) }
-            if let endpoints = pendingEndpoints {
-                healthChecker.startPolling(readyURL: endpoints.ready, livenessURL: endpoints.liveness)
+            switch pendingEndpoints {
+            case .http(let ready, let liveness):
+                healthChecker.startPolling(readyURL: ready, livenessURL: liveness)
+            case .unixSocket(let path):
+                healthChecker.startPolling(socketPath: path)
+            case nil:
+                break
             }
         case .terminate:
             processManager.terminate()

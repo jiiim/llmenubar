@@ -133,4 +133,18 @@ final class ServerFailureTests: XCTestCase {
         XCTAssertEqual(SettingsNavigation.consumePendingPane(), .memory)
         XCTAssertNil(SettingsNavigation.consumePendingPane())
     }
+
+    func testFailuresOfTheNewOptionsOpenThePaneThatSetsThem() {
+        let cases: [(message: String, pane: ServerSettingsDestination)] = [
+            ("A server already holds the socket /tmp/s.sock. An engine from an earlier session may still be running", .server),
+            ("chat template not readable at /tmp/chat.jinja", .model),
+            ("the custom chat template serves no request: its prompts for the model do not end with a generation prompt", .model),
+            ("Invalid server configuration: This engine has no --cached-states option. Update the engine, or clear this setting.", .memory),
+            ("Invalid server configuration: This engine has no --reasoning-effort option. Update the engine, or clear this setting.", .requests),
+            ("--default-reasoning-effort (SPLASH_DEFAULT_REASONING_EFFORT) sets the effort of requests that set none", .requests),
+        ]
+        for (message, pane) in cases {
+            XCTAssertEqual(ServerLaunchFailure(message: message, source: .manual).settingsDestination, pane, message)
+        }
+    }
 }

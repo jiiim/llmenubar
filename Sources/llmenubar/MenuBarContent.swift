@@ -130,6 +130,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// stopped too.
     private let copyAddressItem = NSMenuItem(title: "Copy Address", action: nil, keyEquivalent: "")
     private var chatPageURL: URL?
+    private var socketPath: String?
     private let statusTextItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let lastActivityItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let serverActionItem = NSMenuItem(title: "", action: nil, keyEquivalent: "s")
@@ -454,10 +455,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let title = "splash at " + ListenAddress(configuration.host)
             .displayed(port: configuration.port)
         serverItem.title = title
-        chatPageURL = SplashEndpoints(configuration).chatPage
+        let endpoints = SplashEndpoints(configuration)
+        chatPageURL = endpoints.chatPage
+        socketPath = endpoints.socketPath
         // The line opens the chat page, so it is a plain item only while there
         // is a page to open. Otherwise it is text, as it was before.
-        serverItem.isEnabled = SplashEndpoints.opensChatPage(
+        serverItem.isEnabled = chatPageURL != nil && SplashEndpoints.opensChatPage(
             status: server.status,
             chatPageEnabled: configuration.chatPageEnabled
         )
@@ -471,7 +474,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         refreshOtherDeviceItems(for: configuration)
         copyKeyItem.title = information.keyTitle
         copyKeyItem.isEnabled = information.keyIsAvailable
-        copyAddressItem.isEnabled = chatPageURL != nil
+        copyAddressItem.isEnabled = chatPageURL != nil || socketPath != nil
         statusTextItem.title = "Status: \(server.statusText)"
         updateLastActivityItem()
         serverActionItem.title = server.status.actionTitle
@@ -575,6 +578,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func copyAddress() {
         if let chatPageURL { AddressActions.copy(chatPageURL) }
+        else if let socketPath { AddressActions.copy(socketPath) }
     }
 
     /// Uses the same state rules as the Server menu's Start and Stop.

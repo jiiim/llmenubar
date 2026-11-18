@@ -118,6 +118,243 @@ final class LiveSplashTests: XCTestCase {
         XCTAssertTrue(log.contains("Done ·"))
     }
 
+    /// The options of 1.7.0 are flagged exactly where the engine's own help
+    /// does not list them: reported on an earlier Splash, silent on 1.7.0.
+    ///
+    ///     LLMENUBAR_LIVE_SPLASH=/path/to/splash swift test \
+    ///         --filter LiveSplashTests/testTheNewOptionsAreFlaggedOnlyWhereTheEngineLacksThem
+    func testTheNewOptionsAreFlaggedOnlyWhereTheEngineLacksThem() throws {
+        guard let splash = ProcessInfo.processInfo.environment["LLMENUBAR_LIVE_SPLASH"]
+        else { throw XCTSkip("set LLMENUBAR_LIVE_SPLASH to run against a real Splash") }
+
+        var base = ServerConfiguration.Config()
+        base.splashPath = splash
+        base.huggingFaceModel = "owner/repo:Q4"
+        let derived = SplashDerivedState.compute(for: base)
+        XCTAssertTrue(derived.build.isSplash)
+        XCTAssertFalse(derived.build.serveFlags.isEmpty, "the engine's help should have been read")
+        XCTAssertEqual(base.validationErrors(derived: derived), [:], "the defaults ask for nothing new")
+
+        var cachedStates = base
+        cachedStates.cachedStates = .exact
+        var everyRequest = base
+        everyRequest.reasoningEffort = .low
+        everyRequest.reasoningScope = .everyRequest
+        var requestsWithoutOne = base
+        requestsWithoutOne.reasoningEffort = .low
+        var template = base
+        template.chatTemplatePath = "/tmp/chat.jinja"
+        var socket = base
+        socket.host = "unix:/tmp/llmb.sock"
+
+        let cases: [(name: String, config: ServerConfiguration.Config, flag: String,
+                     field: ServerConfiguration.Config.Field)] = [
+            ("cached states", cachedStates, "--cached-states", .cachedStates),
+            ("effort for every request", everyRequest, "--reasoning-effort", .reasoningEffort),
+            ("chat template", template, "--chat-template-file", .chatTemplatePath),
+            // The socket is a value of `--host`, which every Splash lists; it
+            // stands on `--reasoning-effort`, which came with it.
+            ("UNIX socket", socket, "--reasoning-effort", .host),
+        ]
+        for item in cases {
+            let flagged = item.config.validationErrors(derived: derived)[item.field]
+            XCTAssertEqual(
+                flagged != nil, !derived.build.serveFlags.contains(item.flag),
+                "\(item.name): flagged \(flagged ?? "no") on Splash \(derived.build.displayVersion ?? "?")"
+            )
+        }
+        XCTAssertNil(
+            requestsWithoutOne.validationErrors(derived: derived)[.reasoningEffort],
+            "an effort for requests that set none is older than 1.7.0 and needs nothing new"
+        )
+    }
+
+    /// `--host unix:PATH` is a value of an option every Splash lists, so the
+    /// app reads support for it from another option that arrived with it. Ask
+    /// the real parser: an engine without it fails to bind the host at once; one
+    /// with it gets on to the model, which does not exist.
+    func testTheEngineTakesASocketHostExactlyWhenTheAppSaysItDoes() throws {
+        guard let splash = ProcessInfo.processInfo.environment["LLMENUBAR_LIVE_SPLASH"]
+        else { throw XCTSkip("set LLMENUBAR_LIVE_SPLASH to run against a real Splash") }
+        guard case .success(let launcher) = SplashLauncher.resolve(path: splash) else {
+            return XCTFail("not a Splash: \(splash)")
+        }
+        var config = ServerConfiguration.Config()
+        config.splashPath = splash
+        config.huggingFaceModel = "owner/does-not-exist:Q4"
+        config.offline = true
+        config.port = 8_794
+        config.host = "unix:/tmp/llmb-parse-\(UUID().uuidString.prefix(8)).sock"
+        let derived = SplashDerivedState.compute(for: config)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: launcher.executable)
+        process.arguments = launcher.leadingArguments + SplashCommand.arguments(configuration: config)
+        process.environment = SplashCommand.launchEnvironment(configuration: config, launcher: launcher)
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        XCTAssertEqual(
+            !output.contains("cannot bind unix:"), derived.build.supportsUnixSocket,
+            "Splash \(derived.build.displayVersion ?? "?") said: \(output.prefix(300))"
+        )
+    }
+
+    /// Splash refuses a launch that carries an effort for every request and the
+    /// variable for requests that set none, or the reverse. The app drops the
+    /// variable of the kind it does not send, so the real parser must get past
+    /// the arguments. The model does not exist, so the run ends there, in
+    /// seconds, with Splash's complaint about the model and not about effort.
+    func testAnEffortChosenHereIsNotRefusedForTheOtherKindsVariable() throws {
+        guard let splash = ProcessInfo.processInfo.environment["LLMENUBAR_LIVE_SPLASH"]
+        else { throw XCTSkip("set LLMENUBAR_LIVE_SPLASH to run against a real Splash") }
+        guard case .success(let launcher) = SplashLauncher.resolve(path: splash) else {
+            return XCTFail("not a Splash: \(splash)")
+        }
+        let derived = SplashDerivedState.compute(for: {
+            var config = ServerConfiguration.Config()
+            config.splashPath = splash
+            return config
+        }())
+        try XCTSkipUnless(derived.build.supports("--reasoning-effort"), "this Splash has one kind of effort only")
+
+        for scope in ServerConfiguration.ReasoningScope.allCases {
+            var config = ServerConfiguration.Config()
+            config.splashPath = splash
+            config.huggingFaceModel = "owner/does-not-exist:Q4"
+            config.offline = true
+            config.port = 8_793
+            config.reasoningEffort = .low
+            config.reasoningScope = scope
+            let inherited = ProcessInfo.processInfo.environment.merging([
+                "SPLASH_DEFAULT_REASONING_EFFORT": "medium",
+                "SPLASH_REASONING_EFFORT": "high",
+            ]) { $1 }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: launcher.executable)
+            process.arguments = launcher.leadingArguments + SplashCommand.arguments(configuration: config)
+            process.environment = SplashCommand.launchEnvironment(configuration: config, launcher: launcher, inheriting: inherited)
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            try process.run()
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            XCTAssertFalse(output.contains("sets the effort of requests that set none"), "\(scope): \(output.prefix(400))")
+            XCTAssertFalse(output.contains("usage: splash"), "\(scope): the arguments were refused: \(output.prefix(400))")
+        }
+    }
+
+    /// Splash 1.7.0's options through the app: a UNIX socket in place of a port,
+    /// one effort for every request, and exact cached states. The app's own
+    /// health check reaches `running` through the socket, and the model list
+    /// the engine serves says what it was told.
+    ///
+    ///     LLMENUBAR_LIVE_SPLASH=... LLMENUBAR_LIVE_MODEL=... \
+    ///     [LLMENUBAR_LIVE_TEMPLATE=/path/to/chat.jinja] \
+    ///     swift test --filter LiveSplashTests/testServeOnAUnixSocketWithTheNewOptions
+    func testServeOnAUnixSocketWithTheNewOptions() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let splash = environment["LLMENUBAR_LIVE_SPLASH"],
+              let model = environment["LLMENUBAR_LIVE_MODEL"]
+        else { throw XCTSkip("set LLMENUBAR_LIVE_SPLASH and LLMENUBAR_LIVE_MODEL to run against a real Splash") }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("llmenubar-live-socket-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suiteName = "llmenubar-live-socket-\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+
+        // Short: a socket path holds at most 103 bytes.
+        let socket = "/tmp/llmb-live-\(UUID().uuidString.prefix(8)).sock"
+        let configuration = ServerConfiguration(defaults: defaults)
+        var config = ServerConfiguration.Config()
+        config.splashPath = splash
+        config.huggingFaceModel = model
+        config.offline = true
+        config.host = "unix:" + socket
+        config.port = 8_792
+        config.reasoningEffort = .low
+        config.reasoningScope = .everyRequest
+        config.cachedStates = .exact
+        // A template of the model's family, when one is given: Splash refuses
+        // one that cannot render a conversation, so serving proves it did.
+        let template = environment["LLMENUBAR_LIVE_TEMPLATE"]
+        if let template { config.chatTemplatePath = PathText.storingAbsolute(template) }
+        config.maxMemory = environment["LLMENUBAR_LIVE_MEMORY"] ?? "24G"
+        config.logPath = directory.appendingPathComponent("splash.log").path
+        configuration.replace(with: config)
+
+        let derived = SplashDerivedState.compute(for: configuration.snapshot())
+        XCTAssertNil(derived.splashIssue)
+        XCTAssertNil(derived.chatTemplateIssue)
+        try XCTSkipUnless(derived.build.supportsUnixSocket, "this needs Splash 1.7.0 or later")
+        XCTAssertEqual(configuration.snapshot().validationErrors(derived: derived), [:])
+
+        let manager = ServerManager(
+            config: configuration,
+            healthChecker: HealthChecker(fastInterval: 1, steadyInterval: 2),
+            notificationSink: { _, _ in }
+        )
+        defer { manager.stop() }
+
+        manager.start()
+        // While the model loads the engine holds the socket's lock though
+        // nothing accepts yet, and a second launch must see the socket as taken.
+        spin(timeout: 60) { UnixSocket.isLockHeld(for: socket) }
+        XCTAssertTrue(UnixSocket.isLockHeld(for: socket), "the engine takes PATH.lock as it starts")
+        if !UnixSocket.isAccepting(at: socket) {
+            XCTAssertFalse(PortWaiter.isListenPortAvailable(host: "unix:" + socket, port: config.port),
+                           "a loading engine holds the socket")
+        }
+        let startTimeout = TimeInterval(environment["LLMENUBAR_LIVE_TIMEOUT"] ?? "") ?? 240
+        spin(timeout: startTimeout) {
+            if case .running = manager.status { return true }
+            if case .error = manager.status { return true }
+            return false
+        }
+        guard case .running = manager.status else {
+            let tail = (try? String(contentsOfFile: config.logPath, encoding: .utf8))
+                .map { String($0.suffix(3_000)) } ?? "(no log)"
+            return XCTFail("did not reach running over the socket: \(manager.status)\n--- log tail ---\n\(tail)")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socket), "the engine made the socket")
+        XCTAssertEqual(UnixSocket.status(at: socket, target: "/v1/models", timeout: 5), .success(200))
+
+        let curl = Process()
+        curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        curl.arguments = ["-s", "--unix-socket", socket, "http://localhost/v1/models"]
+        let pipe = Pipe()
+        curl.standardOutput = pipe
+        try curl.run()
+        curl.waitUntilExit()
+        let body = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertTrue(body.contains("\"reasoning\""), "the model list reports what efforts do: \(body.prefix(400))")
+
+        manager.stop()
+        spin(timeout: 30) { manager.status == .stopped }
+        XCTAssertEqual(manager.status, .stopped)
+        spin(timeout: 5) { !FileManager.default.fileExists(atPath: socket) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socket), "the engine removes its socket as it exits")
+        XCTAssertFalse(UnixSocket.isLockHeld(for: socket), "and lets go of the lock")
+        XCTAssertTrue(PortWaiter.isListenPortAvailable(host: "unix:" + socket, port: config.port))
+
+        let log = try String(contentsOfFile: config.logPath, encoding: .utf8)
+        XCTAssertTrue(log.contains("--reasoning-effort low"), "the launch line names the option")
+        XCTAssertTrue(log.contains("--cached-states exact"))
+        // The app stores a path in its own spelling: `/private/var` is `/var`.
+        if template != nil {
+            XCTAssertTrue(log.contains("--chat-template-file " + PathText.expandingTilde(config.chatTemplatePath)))
+        }
+        XCTAssertTrue(log.contains("--host unix:" + socket))
+    }
+
     /// The same, for the settings a hand-typed command line carries: local
     /// files with a projector and a draft, a name of the user's own, listening
     /// on every interface, an API key, and an environment variable.

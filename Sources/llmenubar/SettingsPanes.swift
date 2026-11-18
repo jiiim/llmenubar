@@ -21,6 +21,7 @@ extension SettingsView {
     enum HostChoice: Hashable {
         case thisMac
         case allNetworks
+        case unixSocket
         case other
     }
 
@@ -30,18 +31,36 @@ extension SettingsView {
                 switch draft.host {
                 case "127.0.0.1": return .thisMac
                 case "0.0.0.0": return .allNetworks
-                default: return .other
+                default: return ListenAddress(draft.host).kind == .unixSocket ? .unixSocket : .other
                 }
             },
             set: { choice in
                 switch choice {
                 case .thisMac: draft.host = "127.0.0.1"
                 case .allNetworks: draft.host = "0.0.0.0"
+                case .unixSocket:
+                    if ListenAddress(draft.host).kind != .unixSocket {
+                        draft.host = ListenAddress.unixPrefix + Self.suggestedSocketPath
+                    }
                 case .other:
                     // Start the address field empty so it is the user's to fill.
-                    if draft.host == "127.0.0.1" || draft.host == "0.0.0.0" { draft.host = "" }
+                    let kind = ListenAddress(draft.host).kind
+                    if draft.host == "127.0.0.1" || draft.host == "0.0.0.0" || kind == .unixSocket {
+                        draft.host = ""
+                    }
                 }
             }
+        )
+    }
+
+    /// Where a socket goes until the user names one.
+    static let suggestedSocketPath = "~/splash.sock"
+
+    /// The socket's path as text, without the `unix:` the address carries.
+    var socketPathBinding: Binding<String> {
+        Binding(
+            get: { String(draft.host.dropFirst(ListenAddress.unixPrefix.count)) },
+            set: { draft.host = ListenAddress.unixPrefix + $0 }
         )
     }
 
@@ -104,12 +123,18 @@ extension SettingsView {
             Text("Without an API key, anyone who can reach the address can use the page.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            addressRow(
-                "Chat page",
-                url: SplashEndpoints(draft.normalized()).chatPage,
-                opens: true,
-                enabled: draft.chatPageEnabled
-            )
+            if SplashEndpoints(draft.normalized()).socketPath != nil {
+                Text("A browser cannot open a UNIX socket, so there is no chat page address to open.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                addressRow(
+                    "Chat page",
+                    url: SplashEndpoints(draft.normalized()).chatPage,
+                    opens: true,
+                    enabled: draft.chatPageEnabled
+                )
+            }
         }
     }
 
@@ -120,6 +145,25 @@ extension SettingsView {
     func addressRow(_ title: String, url: URL?, opens: Bool, enabled: Bool) -> some View {
         LabeledContent(title) {
             AddressField(url: url, opens: opens, enabled: enabled)
+        }
+    }
+
+    /// The socket a server listens on, in the same filled field as an address.
+    @ViewBuilder
+    func socketRow(_ title: String, path: String) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 6) {
+                Text(path)
+                    .font(.system(.callout, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityLabel(path)
+                CopyButton(help: "Copy path") { AddressActions.copy(path) }
+            }
         }
     }
 
@@ -431,6 +475,23 @@ extension ServerConfiguration.StateFormat {
     }
 }
 
+extension ServerConfiguration.CachedStates {
+    /// An engine without the option keeps cached states as the Recurrent state
+    /// is set, so it has no 8-bit default to name.
+    func title(engineHasOption: Bool) -> String {
+        guard self == .standard, !engineHasOption else { return title }
+        return "Engine default (as Recurrent state)"
+    }
+
+    var title: String {
+        switch self {
+        case .standard: return "Engine default (8-bit)"
+        case .int8: return "8-bit (INT8)"
+        case .exact: return "Exact"
+        }
+    }
+}
+
 extension ServerConfiguration.Activations {
     var title: String {
         switch self {
@@ -451,6 +512,15 @@ extension ServerConfiguration.ReasoningEffort {
         case .high: return "High"
         case .xhigh: return "Extra high"
         case .max: return "Maximum"
+        }
+    }
+}
+
+extension ServerConfiguration.ReasoningScope {
+    var title: String {
+        switch self {
+        case .requestsWithoutOne: return "Requests that set none"
+        case .everyRequest: return "Every request"
         }
     }
 }

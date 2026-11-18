@@ -116,6 +116,17 @@ extension SettingsView {
                 }
             }
 
+            Section("Chat template") {
+                pathRow(
+                    "Template file",
+                    field: .chatTemplate,
+                    errorKey: .chatTemplatePath,
+                    help: "A Jinja chat template to render every request with, in place of the model's own. The engine reads it once at startup and refuses one that cannot render a conversation."
+                )
+                Button("Use the Model's Own") { editor.draft.chatTemplatePath = ""; requestDerivedRefresh() }
+                    .disabled(draft.chatTemplatePath.isEmpty)
+            }
+
             Section("Options") {
                 toggleRow(
                     "Text only",

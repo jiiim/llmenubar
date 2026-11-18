@@ -33,6 +33,49 @@ final class HealthCheckerTests: XCTestCase {
         }
     }
 
+    // MARK: - UNIX socket
+
+    func testASocketServerIsPolledForReadinessThenForHealth() {
+        let server = UnixStubServer()
+        defer { server.stop() }
+        let checker = HealthChecker(fastInterval: 1, steadyInterval: 1)
+        defer { checker.stop() }
+        var starting = true
+        var ready = 0
+        checker.isStartingUp = { starting }
+        checker.isRunning = { !starting }
+        checker.onHealthSuccess = {
+            ready += 1
+            starting = false
+        }
+        checker.startPolling(socketPath: server.path)
+        spin { ready == 1 }
+        XCTAssertEqual(ready, 1)
+        XCTAssertEqual(server.requestPaths.first, "/ready", "readiness while it starts")
+        spin(timeout: 4) { server.requestPaths.contains("/health") }
+        XCTAssertTrue(server.requestPaths.contains("/health"), "then liveness once it runs")
+    }
+
+    func testASocketServerThatStopsAnsweringIsReportedUnreachable() {
+        let server = UnixStubServer()
+        let checker = HealthChecker(fastInterval: 1, steadyInterval: 1, failureThreshold: 2)
+        defer { checker.stop() }
+        var starting = true
+        var reasons: [String] = []
+        checker.isStartingUp = { starting }
+        checker.isRunning = { !starting }
+        checker.onHealthSuccess = { starting = false }
+        checker.onUnreachable = { reasons.append($0) }
+        checker.startPolling(socketPath: server.path)
+        spin { !starting }
+        XCTAssertFalse(starting)
+
+        server.stop()
+        spin(timeout: 8) { !reasons.isEmpty }
+        XCTAssertEqual(reasons.count, 1)
+        XCTAssertTrue(reasons.first?.contains("unreachable for 2 checks") == true)
+    }
+
     // MARK: - Readiness
 
     func testStopInsideReadinessCallbackDoesNotRecreatePolling() {

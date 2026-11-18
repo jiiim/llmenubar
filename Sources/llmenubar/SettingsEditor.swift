@@ -147,6 +147,7 @@ final class SettingsEditor: ObservableObject {
         case .model: draft.modelPath = stored
         case .visionProjector: draft.visionProjectorPath = stored
         case .draft: draft.draftModel = stored
+        case .chatTemplate: draft.chatTemplatePath = stored
         case .cacheDirectory: draft.cacheDirectory = stored
         case .logDirectory:
             draft.logPath = PathText.storingFile(directory: stored, name: logNameText)

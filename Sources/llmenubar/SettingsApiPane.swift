@@ -14,8 +14,15 @@ extension SettingsView {
 
             Section("Addresses") {
                 let endpoints = SplashEndpoints(draft.normalized())
-                addressRow("OpenAI compatible", url: endpoints.openAIBase, opens: false, enabled: true)
-                addressRow("Anthropic compatible", url: endpoints.anthropicBase, opens: false, enabled: true)
+                if let socketPath = endpoints.socketPath {
+                    socketRow("UNIX socket", path: socketPath)
+                    Text("No base URL reaches a socket. A client connects to it, as in curl --unix-socket \(PathText.shellQuoted(socketPath)) http://localhost/v1/models. Most SDKs and apps take a URL and cannot use one.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    addressRow("OpenAI compatible", url: endpoints.openAIBase, opens: false, enabled: true)
+                    addressRow("Anthropic compatible", url: endpoints.anthropicBase, opens: false, enabled: true)
+                }
                 // Listening on every interface: the two above work on this Mac
                 // only, so show what another device would use.
                 let normalized = draft.normalized()
@@ -24,9 +31,11 @@ extension SettingsView {
                     addressRow("OpenAI (\(entry.label))", url: entry.openAI, opens: false, enabled: true)
                     addressRow("Anthropic (\(entry.label))", url: entry.anthropic, opens: false, enabled: true)
                 }
-                Text("The base URLs clients take.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                if SplashEndpoints(draft.normalized()).socketPath == nil {
+                    Text("The base URLs clients take.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Access") {

@@ -69,6 +69,7 @@ enum SplashCommand {
         valued("--sparse-kv-memory", config.sparseKVMemory, into: &args)
         if let format = config.kvFormat.argument { args += ["--kv-format", format] }
         if let format = config.stateFormat.argument { args += ["--state-format", format] }
+        if let storage = config.cachedStates.argument { args += ["--cached-states", storage] }
         valued("--idle-release", config.idleRelease, into: &args)
         if config.disableANE { args.append("--disable-ane") }
         if let activations = config.activations.argument { args += ["--activations", activations] }
@@ -88,10 +89,15 @@ enum SplashCommand {
         for alias in aliases { args += ["--served-model-name", alias] }
         if config.announceServedName, !aliases.isEmpty { args.append("--announce-served-name") }
         if let effort = config.reasoningEffort.argument {
-            args += ["--default-reasoning-effort", effort]
+            let flag = config.reasoningScope == .everyRequest
+                ? "--reasoning-effort" : "--default-reasoning-effort"
+            args += [flag, effort]
         }
         valued("--thinking-token-budget", config.thinkingTokenBudget, into: &args)
         valued("--thinking-end-text", config.thinkingEndText, into: &args)
+        if !config.chatTemplatePath.isEmpty {
+            args += ["--chat-template-file", PathText.expandingTilde(config.chatTemplatePath)]
+        }
 
         // Requests.
         valued("--max-request-size", config.maxRequestSize, into: &args)
@@ -110,6 +116,18 @@ enum SplashCommand {
         if !trimmed.isEmpty { args += [flag, trimmed] }
     }
 
+    /// The environment variable that would make Splash refuse the effort this
+    /// configuration puts on the command line. Splash takes the effort for
+    /// every request and the effort for requests that set none as separate
+    /// options, each with its own variable, and refuses a launch that has one
+    /// of each. The choice made in Settings wins, so the other kind's variable,
+    /// inherited or written in the environment text, is left out.
+    static func conflictingEffortVariable(configuration: ServerConfiguration.Config) -> String? {
+        guard configuration.reasoningEffort.argument != nil else { return nil }
+        return configuration.reasoningScope == .everyRequest
+            ? "SPLASH_DEFAULT_REASONING_EFFORT" : "SPLASH_REASONING_EFFORT"
+    }
+
     /// The variables a launch adds to the inherited environment: the lines of
     /// the environment setting, and the API key under the name Splash reads it
     /// by. The key goes here and never in `arguments`, which `ps` shows.
@@ -122,6 +140,9 @@ enum SplashCommand {
         let cache = configuration.modelCacheDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if configuration.modelSource == .huggingFace, !cache.isEmpty {
             overrides.append(("HF_HUB_CACHE", PathText.expandingTilde(cache)))
+        }
+        if let conflict = conflictingEffortVariable(configuration: configuration) {
+            overrides.removeAll { $0.name == conflict }
         }
         // The switch on the Diagnostics pane wins over a line of the same name.
         if configuration.crashTrace {
@@ -153,6 +174,9 @@ enum SplashCommand {
         var environment = base
         for (name, value) in launcher?.environment ?? [:] {
             environment[name] = value
+        }
+        if let conflict = conflictingEffortVariable(configuration: configuration) {
+            environment.removeValue(forKey: conflict)
         }
         for (name, value) in environmentOverrides(configuration: configuration) {
             environment[name] = value

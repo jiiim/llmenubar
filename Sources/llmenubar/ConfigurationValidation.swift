@@ -16,6 +16,7 @@ struct SplashDerivedState: Equatable, Sendable {
     var modelIssue: SplashModel.LocalModelIssue?
     var visionProjectorIssue: String?
     var draftIssue: String?
+    var chatTemplateIssue: String?
 
     /// Nothing inspected: no file or executable problem is known.
     static let uninspected = SplashDerivedState()
@@ -26,6 +27,13 @@ struct SplashDerivedState: Equatable, Sendable {
 
         if config.hasSplash {
             (state.build, state.splashIssue) = inspectSplash(atPath: config.splashPath)
+        }
+
+        if !config.chatTemplatePath.isEmpty {
+            let path = PathText.expandingTilde(config.chatTemplatePath)
+            if !FileManager.default.isReadableRegularFile(atPath: path) {
+                state.chatTemplateIssue = "Choose a readable chat template file."
+            }
         }
 
         guard config.modelSource == .local else {
@@ -87,11 +95,11 @@ extension ServerConfiguration.Config {
     enum Field: String, CaseIterable, Hashable {
         case splashPath
         case huggingFaceModel, modelPath, localModelName, visionProjectorPath, draftModel, revision
-        case modelCacheDirectory
+        case modelCacheDirectory, chatTemplatePath
         case host, port, allowedHosts, allowedOrigins, apiKey, huggingFaceToken
-        case maxMemory, maxContext, pleMemory, expertMemory, sparseKVMemory, idleRelease, activations
+        case maxMemory, maxContext, pleMemory, expertMemory, sparseKVMemory, idleRelease, activations, cachedStates
         case maxCacheDisk, maxCacheDiskWrites, cacheDirectory
-        case servedModelNames, thinkingTokenBudget, thinkingEndText
+        case servedModelNames, reasoningEffort, thinkingTokenBudget, thinkingEndText
         case maxRequestSize, maxImagePixels, requestTimeout, queueSize, decodeShare
         case logPath, logMaxSizeMB, environment
     }
@@ -164,7 +172,20 @@ extension ServerConfiguration.Config {
 
         // Network and access.
         let address = ListenAddress(host)
-        if address.configured.isEmpty {
+        if address.kind == .unixSocket {
+            // A path may hold spaces, and it names no port.
+            if let issue = address.socketIssue {
+                fail(.host, issue)
+            } else if let path = address.socketPath {
+                var isDirectory: ObjCBool = false
+                let folder = (path as NSString).deletingLastPathComponent
+                if !(FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory) && isDirectory.boolValue) {
+                    fail(.host, "The folder for the socket does not exist: \(folder).")
+                } else if !derived.build.supportsUnixSocket {
+                    fail(.host, "This engine cannot listen on a UNIX socket. Update Splash to 1.7.0 or later.")
+                }
+            }
+        } else if address.configured.isEmpty {
             fail(.host, "Enter an address, such as 127.0.0.1 or 0.0.0.0.")
         } else if address.configured.contains(where: \.isWhitespace) {
             fail(.host, "An address cannot contain spaces.")
@@ -244,6 +265,15 @@ extension ServerConfiguration.Config {
                 } else if !FileManager.default.isWritableFile(atPath: path) {
                     fail(.modelCacheDirectory, "That folder cannot be written to.")
                 }
+            }
+        }
+
+        // The chat template that replaces the model's own.
+        if !chatTemplatePath.isEmpty {
+            if !PathText.isAbsolute(chatTemplatePath) {
+                fail(.chatTemplatePath, "Choose the template with the Choose button.")
+            } else if let issue = derived.chatTemplateIssue {
+                fail(.chatTemplatePath, issue)
             }
         }
 
@@ -328,6 +358,9 @@ extension ServerConfiguration.Config {
         add(.expertMemory, "--expert-memory", when: !expertMemory.isEmpty)
         add(.sparseKVMemory, "--sparse-kv-memory", when: !sparseKVMemory.isEmpty)
         add(.maxCacheDiskWrites, "--max-cache-disk-writes", when: !maxCacheDiskWrites.isEmpty)
+        add(.reasoningEffort, "--reasoning-effort",
+            when: reasoningEffort != .modelDefault && reasoningScope == .everyRequest)
+        add(.chatTemplatePath, "--chat-template-file", when: !chatTemplatePath.isEmpty)
         add(.thinkingTokenBudget, "--thinking-token-budget", when: !thinkingTokenBudget.isEmpty)
         add(.thinkingEndText, "--thinking-end-text", when: !thinkingEndText.isEmpty)
         add(.maxImagePixels, "--max-image-pixels", when: !maxImagePixels.isEmpty)
@@ -335,6 +368,7 @@ extension ServerConfiguration.Config {
         add(.queueSize, "--queue-size", when: !queueSize.isEmpty)
         add(.decodeShare, "--decode-share", when: !decodeShare.isEmpty)
         add(.activations, "--activations", when: activations != .standard)
+        add(.cachedStates, "--cached-states", when: cachedStates != .standard)
         return options
     }
 }

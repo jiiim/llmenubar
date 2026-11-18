@@ -154,10 +154,52 @@ final class ProcessLaunchTests: XCTestCase {
             defer { if manager.isProcessRunning { manager.terminate() } }
 
             let endpoints = manager.launch(configuration: config)
-            XCTAssertEqual(endpoints?.ready.absoluteString, base + "/ready", host)
-            XCTAssertEqual(endpoints?.liveness.absoluteString, base + "/health", host)
+            XCTAssertEqual(endpoints?.ready?.absoluteString, base + "/ready", host)
+            XCTAssertEqual(endpoints?.liveness?.absoluteString, base + "/health", host)
             XCTAssertTrue(manager.isProcessRunning, "the child must really be running for \(host)")
         }
+    }
+
+    /// A socket has no URL: the health checker is given its path instead, and
+    /// the child is given the expanded path to bind.
+    func testASocketHostGivesTheHealthCheckerThePathNotAURL() throws {
+        let directory = try makeDirectory("socket")
+        let argsFile = directory.appendingPathComponent("args")
+        let splash = try makeScript(in: directory, """
+        echo "$@" > '\(argsFile.path)'
+        exec /bin/sleep 5
+        """)
+        var config = configuration(splash: splash, in: directory)
+        let socket = "/tmp/llmb-\(UUID().uuidString.prefix(8)).sock"
+        config.host = "unix:" + socket
+        let manager = ProcessManager()
+        defer { if manager.isProcessRunning { manager.terminate() } }
+
+        let endpoints = manager.launch(configuration: config)
+        XCTAssertEqual(endpoints, .unixSocket(path: socket))
+        XCTAssertNil(endpoints?.ready)
+        XCTAssertTrue(manager.isProcessRunning)
+        spin { FileManager.default.fileExists(atPath: argsFile.path) }
+        let received = try String(contentsOf: argsFile, encoding: .utf8)
+        XCTAssertTrue(received.contains("--host unix:" + socket), received)
+    }
+
+    func testALaunchIsRefusedWhileAServerHoldsTheSocket() throws {
+        let directory = try makeDirectory("socketbusy")
+        let marker = directory.appendingPathComponent("ran")
+        let splash = try makeScript(in: directory, "touch '\(marker.path)'; exec /bin/sleep 5")
+        let server = UnixStubServer()
+        defer { server.stop() }
+        var config = configuration(splash: splash, in: directory)
+        config.host = "unix:" + server.path
+        let manager = ProcessManager()
+        var failure: String?
+        manager.onLaunchFailure = { failure = $0 }
+
+        XCTAssertNil(manager.launch(configuration: config))
+        XCTAssertTrue(failure?.contains("already holds") == true, failure ?? "no message")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "the engine must not start")
+        XCTAssertFalse(manager.isProcessRunning)
     }
 
     func testAHostThatMakesNoURLFailsBeforeAnythingRuns() throws {

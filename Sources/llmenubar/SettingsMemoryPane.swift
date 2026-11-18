@@ -68,7 +68,30 @@ extension SettingsView {
                 Picker("Recurrent state", selection: $editor.draft.stateFormat) {
                     ForEach(ServerConfiguration.StateFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                .help("16-bit halves each state, so memory and the SSD cache hold about twice as many.")
+                .help(derived.build.hasCachedStatesOption
+                    ? "16-bit halves the state each running request holds."
+                    : "16-bit halves each state, so memory and the SSD cache hold about twice as many.")
+                if derived.build.hasCachedStatesOption || draft.cachedStates != .standard {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("Cached states", selection: $editor.draft.cachedStates) {
+                            ForEach(ServerConfiguration.CachedStates.allCases, id: \.self) {
+                                Text($0.title(engineHasOption: derived.build.hasCachedStatesOption)).tag($0)
+                            }
+                        }
+                        Text("8-bit stores about a quarter of an fp32 state in memory and on the SSD, and a restored state can differ at near ties. Exact keeps the Recurrent state precision, so a restore is exact.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        if let error = validationErrors[.cachedStates] {
+                            validationLabel(error, for: .cachedStates)
+                        }
+                    }
+                } else {
+                    // This engine keeps cached states as the Recurrent state
+                    // above, so there is nothing to choose and no 8-bit default.
+                    Text("This engine stores cached states in the Recurrent state precision. Splash 1.7.0 and later can store them as 8-bit codes.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("Activations", selection: $editor.draft.activations) {
                         ForEach(ServerConfiguration.Activations.allCases, id: \.self) { Text($0.title).tag($0) }

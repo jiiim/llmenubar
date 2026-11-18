@@ -79,6 +79,12 @@ final class ServerConfiguration {
         var argument: String? { self == .standard ? nil : rawValue }
     }
 
+    /// How cached recurrent states are stored: Splash's `--cached-states`.
+    enum CachedStates: String, Codable, CaseIterable, Equatable {
+        case standard, int8, exact
+        var argument: String? { self == .standard ? nil : rawValue }
+    }
+
     enum Activations: String, Codable, CaseIterable, Equatable {
         case standard, bf16
         var argument: String? { self == .standard ? nil : rawValue }
@@ -94,6 +100,16 @@ final class ServerConfiguration {
             default: return rawValue
             }
         }
+    }
+
+    /// Which requests the chosen thinking effort governs. Splash takes the two
+    /// as separate options and refuses both together, so one choice picks the
+    /// option the command carries.
+    enum ReasoningScope: String, Codable, CaseIterable, Equatable {
+        /// `--default-reasoning-effort`: a request that sets none.
+        case requestsWithoutOne
+        /// `--reasoning-effort`: every request, whatever it asks.
+        case everyRequest
     }
 
     enum VerifyRows: String, Codable, CaseIterable, Equatable {
@@ -149,6 +165,7 @@ final class ServerConfiguration {
         var sparseKVMemory = ""
         var kvFormat: KVFormat = .standard
         var stateFormat: StateFormat = .standard
+        var cachedStates: CachedStates = .standard
         var activations: Activations = .standard
         var idleRelease = ""
         var disableANE = false
@@ -163,8 +180,11 @@ final class ServerConfiguration {
         var servedModelNames = ""
         var announceServedName = false
         var reasoningEffort: ReasoningEffort = .modelDefault
+        var reasoningScope: ReasoningScope = .requestsWithoutOne
         var thinkingTokenBudget = ""
         var thinkingEndText = ""
+        /// A Jinja chat template that replaces the model's own: `--chat-template-file`.
+        var chatTemplatePath = ""
 
         // Requests.
         var maxRequestSize = ""
@@ -607,6 +627,7 @@ extension ServerConfiguration.Config {
         config.maxCacheDisk = trimmed(maxCacheDisk)
         config.maxCacheDiskWrites = trimmed(maxCacheDiskWrites)
         config.cacheDirectory = path(cacheDirectory)
+        config.chatTemplatePath = path(chatTemplatePath)
         config.modelCacheDirectory = path(modelCacheDirectory)
         config.servedModelNames = trimmed(servedModelNames)
         config.thinkingTokenBudget = trimmed(thinkingTokenBudget)
@@ -673,6 +694,7 @@ extension ServerConfiguration.Config {
         sparseKVMemory = c.value(.sparseKVMemory, d.sparseKVMemory)
         kvFormat = c.value(.kvFormat, d.kvFormat)
         stateFormat = c.value(.stateFormat, d.stateFormat)
+        cachedStates = c.value(.cachedStates, d.cachedStates)
         activations = c.value(.activations, d.activations)
         idleRelease = c.value(.idleRelease, d.idleRelease)
         disableANE = c.value(.disableANE, d.disableANE)
@@ -683,8 +705,10 @@ extension ServerConfiguration.Config {
         servedModelNames = c.value(.servedModelNames, d.servedModelNames)
         announceServedName = c.value(.announceServedName, d.announceServedName)
         reasoningEffort = c.value(.reasoningEffort, d.reasoningEffort)
+        reasoningScope = c.value(.reasoningScope, d.reasoningScope)
         thinkingTokenBudget = c.value(.thinkingTokenBudget, d.thinkingTokenBudget)
         thinkingEndText = c.value(.thinkingEndText, d.thinkingEndText)
+        chatTemplatePath = c.value(.chatTemplatePath, d.chatTemplatePath)
         maxRequestSize = c.value(.maxRequestSize, d.maxRequestSize)
         maxImagePixels = c.value(.maxImagePixels, d.maxImagePixels)
         requestTimeout = c.value(.requestTimeout, d.requestTimeout)

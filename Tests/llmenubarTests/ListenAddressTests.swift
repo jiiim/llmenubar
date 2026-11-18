@@ -91,4 +91,49 @@ final class ListenAddressTests: XCTestCase {
             XCTAssertFalse(ListenAddress(host).isLoopback, host)
         }
     }
+
+    // MARK: UNIX sockets
+
+    func testAUnixAddressNamesASocketPath() {
+        let address = ListenAddress("unix:/tmp/splash.sock")
+        XCTAssertEqual(address.kind, .unixSocket)
+        XCTAssertEqual(address.socketPath, "/tmp/splash.sock")
+        XCTAssertEqual(address.bare, "unix:/tmp/splash.sock", "what Splash is given")
+        XCTAssertNil(address.socketIssue)
+        XCTAssertTrue(address.isWellFormed)
+        XCTAssertTrue(address.isLoopback, "only users who may write to the file connect")
+        XCTAssertFalse(address.isUnspecified)
+        XCTAssertNil(ListenAddress("127.0.0.1").socketPath)
+    }
+
+    func testATildeInASocketPathIsExpandedForSplashAndKeptForDisplay() {
+        let address = ListenAddress("unix:~/splash.sock")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        XCTAssertEqual(address.socketPath, home + "/splash.sock")
+        XCTAssertEqual(address.bare, "unix:" + home + "/splash.sock")
+        XCTAssertEqual(address.displayed(port: 8000), "unix:~/splash.sock", "a socket has no port to show")
+    }
+
+    func testNoURLReachesASocket() {
+        let address = ListenAddress("unix:/tmp/splash.sock")
+        XCTAssertNil(address.url(port: 8000, path: "/v1"))
+        let endpoints = SplashEndpoints(host: "unix:/tmp/splash.sock", port: 8000)
+        XCTAssertNil(endpoints.chatPage)
+        XCTAssertNil(endpoints.openAIBase)
+        XCTAssertNil(endpoints.anthropicBase)
+        XCTAssertEqual(endpoints.socketPath, "/tmp/splash.sock")
+        XCTAssertNil(SplashEndpoints(host: "127.0.0.1", port: 8000).socketPath)
+    }
+
+    func testASocketPathMustBeUsable() {
+        XCTAssertNotNil(ListenAddress("unix:").socketIssue, "no path")
+        XCTAssertNotNil(ListenAddress("unix:   ").socketIssue, "no path")
+        XCTAssertNotNil(ListenAddress("unix:splash.sock").socketIssue, "a relative path")
+        XCTAssertNotNil(ListenAddress("unix:/tmp/a\u{7}b.sock").socketIssue, "a control character")
+        let longest = "/tmp/" + String(repeating: "x", count: ListenAddress.maxSocketPathBytes - 5)
+        XCTAssertNil(ListenAddress("unix:" + longest).socketIssue, "103 bytes fit")
+        XCTAssertNotNil(ListenAddress("unix:" + longest + "x").socketIssue, "104 do not")
+        XCTAssertFalse(ListenAddress("unix:relative").isWellFormed)
+        XCTAssertNil(ListenAddress("unix:/Users/me/Library/Application Support/s.sock").socketIssue, "a path may hold spaces")
+    }
 }

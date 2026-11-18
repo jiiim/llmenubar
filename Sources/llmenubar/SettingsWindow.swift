@@ -527,6 +527,7 @@ struct SettingsView: View {
         case .model: return draft.modelPath
         case .visionProjector: return draft.visionProjectorPath
         case .draft: return draft.draftModel
+        case .chatTemplate: return draft.chatTemplatePath
         case .cacheDirectory: return draft.cacheDirectory
         case .logDirectory: return PathText.directory(of: draft.logPath)
         }

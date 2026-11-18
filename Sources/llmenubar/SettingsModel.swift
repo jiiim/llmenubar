@@ -51,17 +51,18 @@ enum SettingsPane: String, CaseIterable, Hashable, Identifiable {
         case .splashPath:
             return .general
         case .huggingFaceModel, .modelPath, .visionProjectorPath, .draftModel, .revision,
-             .modelCacheDirectory, .huggingFaceToken:
+             .modelCacheDirectory, .huggingFaceToken, .chatTemplatePath:
             return .model
         case .host, .port, .allowedHosts, .allowedOrigins:
             return .server
-        case .maxMemory, .maxContext, .pleMemory, .expertMemory, .sparseKVMemory, .idleRelease, .activations:
+        case .maxMemory, .maxContext, .pleMemory, .expertMemory, .sparseKVMemory, .idleRelease, .activations,
+             .cachedStates:
             return .memory
         case .maxCacheDisk, .maxCacheDiskWrites, .cacheDirectory:
             return .cache
         case .apiKey, .localModelName, .servedModelNames:
             return .api
-        case .thinkingTokenBudget, .thinkingEndText,
+        case .reasoningEffort, .thinkingTokenBudget, .thinkingEndText,
              .maxRequestSize, .maxImagePixels, .requestTimeout, .queueSize, .decodeShare:
             return .requests
         case .environment:
@@ -82,6 +83,7 @@ struct SettingsDerivedInputs: Equatable, Hashable {
     let visionProjectorPath: String
     let languageOnly: Bool
     let draftModel: String
+    let chatTemplatePath: String
 
     init(_ config: ServerConfiguration.Config) {
         splashPath = config.splashPath
@@ -90,6 +92,7 @@ struct SettingsDerivedInputs: Equatable, Hashable {
         visionProjectorPath = config.visionProjectorPath
         languageOnly = config.languageOnly
         draftModel = config.draftModel
+        chatTemplatePath = config.chatTemplatePath
     }
 }
 
@@ -99,13 +102,14 @@ enum SettingsPathField: Hashable {
     case model
     case visionProjector
     case draft
+    case chatTemplate
     case cacheDirectory
     case logDirectory
 
     var choosesDirectory: Bool {
         switch self {
         case .draft, .cacheDirectory, .logDirectory: return true
-        case .splash, .model, .visionProjector: return false
+        case .splash, .model, .visionProjector, .chatTemplate: return false
         }
     }
 
@@ -122,7 +126,7 @@ enum SettingsPathField: Hashable {
         case .model: return .model
         case .visionProjector: return .visionProjector
         case .draft: return .draft
-        case .cacheDirectory, .logDirectory: return nil
+        case .chatTemplate, .cacheDirectory, .logDirectory: return nil
         }
     }
 }

@@ -19,7 +19,13 @@ struct ListenAddress: Equatable, Sendable {
         case ipv4
         case ipv6
         case name
+        /// `unix:PATH`: a UNIX socket, which no IP address reaches.
+        case unixSocket
     }
+
+    static let unixPrefix = "unix:"
+    /// The longest socket path macOS takes, in bytes, as Splash states it.
+    static let maxSocketPathBytes = 103
 
     /// The host as typed, trimmed.
     let configured: String
@@ -28,13 +34,24 @@ struct ListenAddress: Equatable, Sendable {
     init(_ configured: String) {
         let trimmed = configured.trimmingCharacters(in: .whitespacesAndNewlines)
         self.configured = trimmed
-        kind = Self.classify(Self.removingBrackets(trimmed))
+        kind = trimmed.hasPrefix(Self.unixPrefix)
+            ? .unixSocket
+            : Self.classify(Self.removingBrackets(trimmed))
+    }
+
+    /// The path of a `unix:PATH` address, with `~` expanded; nil for any other.
+    var socketPath: String? {
+        guard kind == .unixSocket else { return nil }
+        return PathText.expandingTilde(String(configured.dropFirst(Self.unixPrefix.count)))
     }
 
     /// The form a socket call and Splash's `--host` take. URL syntax wraps an
     /// IPv6 address in brackets to set it apart from the port; the address
     /// itself has none.
-    var bare: String { Self.removingBrackets(configured) }
+    var bare: String {
+        if let socketPath { return Self.unixPrefix + socketPath }
+        return Self.removingBrackets(configured)
+    }
 
     var isUnspecified: Bool {
         kind == .unspecifiedIPv4 || kind == .unspecifiedIPv6
@@ -47,6 +64,8 @@ struct ListenAddress: Equatable, Sendable {
         case .unspecifiedIPv6: return "[::1]"
         case .ipv6: return "[\(bare)]"
         case .ipv4, .name: return bare
+        // The name a request to the socket carries in its Host header.
+        case .unixSocket: return "localhost"
         }
     }
 
@@ -55,7 +74,7 @@ struct ListenAddress: Equatable, Sendable {
         switch kind {
         case .unspecifiedIPv4: return "127.0.0.1"
         case .unspecifiedIPv6: return "::1"
-        case .ipv4, .ipv6, .name: return bare
+        case .ipv4, .ipv6, .name, .unixSocket: return bare
         }
     }
 
@@ -63,6 +82,8 @@ struct ListenAddress: Equatable, Sendable {
     /// readable. An unspecified address is shown as configured: that Splash
     /// listens on every interface is the point of showing it.
     func displayed(port: Int) -> String {
+        // A socket has no port to show: the address is its path.
+        if kind == .unixSocket { return configured }
         let host = bare.contains(":") ? "[\(bare)]" : bare
         return "\(host):\(port)"
     }
@@ -72,7 +93,8 @@ struct ListenAddress: Equatable, Sendable {
     /// Nil for a host that cannot be part of a URL. `percentEncodedHost` traps
     /// on text it cannot hold, so nothing unchecked reaches it.
     func url(port: Int, path: String) -> URL? {
-        guard isWellFormed else { return nil }
+        // No browser or SDK takes a socket, so there is no URL to give.
+        guard isWellFormed, kind != .unixSocket else { return nil }
         var components = URLComponents()
         components.scheme = "http"
         components.percentEncodedHost = reachableURLHost
@@ -107,7 +129,28 @@ struct ListenAddress: Equatable, Sendable {
         case .ipv6, .unspecifiedIPv6:
             return bare.allSatisfy { $0.isHexDigit || $0 == ":" || $0 == "." }
         case .ipv4, .unspecifiedIPv4: return true
+        case .unixSocket: return socketIssue == nil
         }
+    }
+
+    /// Why a `unix:PATH` address cannot be used, or nil. The path is absolute
+    /// or starts with `~`, is at most `maxSocketPathBytes` long, and holds no
+    /// control character.
+    var socketIssue: String? {
+        guard let path = socketPath else { return nil }
+        if configured.dropFirst(Self.unixPrefix.count).trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Enter the socket's path after unix:, such as unix:~/splash.sock."
+        }
+        if !PathText.isAbsolute(path) {
+            return "Use a full path, or one that starts with ~, such as unix:~/splash.sock."
+        }
+        if path.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) {
+            return "A socket path cannot contain control characters."
+        }
+        if path.utf8.count > Self.maxSocketPathBytes {
+            return "A socket path is at most \(Self.maxSocketPathBytes) bytes, the longest macOS takes. This one has \(path.utf8.count)."
+        }
+        return nil
     }
 
     /// Whether only this Mac can reach the listener: `127.x.x.x`, `::1` or
@@ -117,6 +160,8 @@ struct ListenAddress: Equatable, Sendable {
         case .ipv4: return bare.hasPrefix("127.")
         case .ipv6: return bare == "::1"
         case .name: return bare.lowercased() == "localhost"
+        // File permissions decide who connects; no network reaches a socket.
+        case .unixSocket: return true
         case .unspecifiedIPv4, .unspecifiedIPv6: return false
         }
     }

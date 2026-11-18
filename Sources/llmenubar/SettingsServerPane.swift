@@ -16,6 +16,7 @@ extension SettingsView {
                 Picker("Listen on", selection: hostChoiceBinding) {
                     Text("This Mac only").tag(HostChoice.thisMac)
                     Text("All networks").tag(HostChoice.allNetworks)
+                    Text("UNIX socket").tag(HostChoice.unixSocket)
                     Text("Another address").tag(HostChoice.other)
                 }
                 if hostChoiceBinding.wrappedValue == .other {
@@ -27,6 +28,15 @@ extension SettingsView {
                         note: nil,
                         monospaced: true
                     )
+                } else if hostChoiceBinding.wrappedValue == .unixSocket {
+                    textRow(
+                        "Socket",
+                        text: socketPathBinding,
+                        field: .host,
+                        prompt: Self.suggestedSocketPath,
+                        note: "The engine creates the socket here and removes it when it stops. Only users with write access to it can connect, so it needs no API key.",
+                        monospaced: true
+                    )
                 } else if let error = validationErrors[.host] {
                     validationLabel(error, for: .host)
                 }
@@ -35,7 +45,9 @@ extension SettingsView {
                     text: portTextBinding,
                     field: .port,
                     prompt: "8000",
-                    note: "From \(ConfigurationLimits.minPort) to \(ConfigurationLimits.maxPort)."
+                    note: hostChoiceBinding.wrappedValue == .unixSocket
+                        ? "A socket has no port. This one only names the engine's lock file, so two sockets need two ports."
+                        : "From \(ConfigurationLimits.minPort) to \(ConfigurationLimits.maxPort)."
                 )
                 if !ListenAddress(draft.host).isLoopback, ListenAddress(draft.host).isWellFormed, draft.apiKey.isEmpty {
                     Label(

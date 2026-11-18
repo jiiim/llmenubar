@@ -45,6 +45,16 @@ struct SplashBuild: Equatable, Sendable {
         return serveFlags.contains(flag)
     }
 
+    /// Whether cached recurrent states have a storage format of their own.
+    /// Before 1.7.0 they were stored in `--state-format`'s, 32-bit unless set.
+    var hasCachedStatesOption: Bool { supports("--cached-states") }
+
+    /// Whether `--host` takes `unix:PATH`. The Splash development build 1.6.2,
+    /// and release 1.7.0 after it, added that and `--reasoning-effort`
+    /// together, and the help names no value for `--host`, so the second
+    /// option stands for the first.
+    var supportsUnixSocket: Bool { supports("--reasoning-effort") }
+
     // MARK: Parsing
 
     static func parseIdentity(fromVersionOutput output: String) -> Identity {

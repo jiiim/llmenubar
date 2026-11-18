@@ -102,11 +102,21 @@ final class ProcessManager {
 
     // MARK: - Launch
 
-    /// The two URLs the health checker polls: `/ready` while the model loads,
-    /// `/health` once the server is running.
-    struct HealthEndpoints: Equatable {
-        let ready: URL
-        let liveness: URL
+    /// Where the health checker polls: `/ready` while the model loads,
+    /// `/health` once the server is running, at two URLs or at one socket.
+    enum HealthEndpoints: Equatable {
+        case http(ready: URL, liveness: URL)
+        case unixSocket(path: String)
+
+        var ready: URL? {
+            if case .http(let ready, _) = self { return ready }
+            return nil
+        }
+
+        var liveness: URL? {
+            if case .http(_, let liveness) = self { return liveness }
+            return nil
+        }
     }
 
     /// Build and run the `splash serve` child process with the given
@@ -140,18 +150,31 @@ final class ProcessManager {
                 return failLaunch("vision projector not readable at \(projector)")
             }
         }
+        let template = PathText.expandingTilde(configuration.chatTemplatePath)
+        if !template.isEmpty, !FileManager.default.isReadableRegularFile(atPath: template) {
+            return failLaunch("chat template not readable at \(template)")
+        }
         if let firstError = configuration.firstValidationError() {
             return failLaunch("Invalid server configuration: \(firstError)")
         }
 
         let address = ListenAddress(configuration.host)
-        guard let readyURL = address.url(port: configuration.port, path: "/ready"),
-              let livenessURL = address.url(port: configuration.port, path: "/health")
-        else {
+        let endpoints: HealthEndpoints
+        if let socketPath = address.socketPath {
+            endpoints = .unixSocket(path: socketPath)
+        } else if let readyURL = address.url(port: configuration.port, path: "/ready"),
+                  let livenessURL = address.url(port: configuration.port, path: "/health") {
+            endpoints = .http(ready: readyURL, liveness: livenessURL)
+        } else {
             return failLaunch("Unable to construct a health-check URL for host \(configuration.host)")
         }
 
         guard listenPortAvailable(configuration.host, configuration.port) else {
+            if let socketPath = address.socketPath {
+                return failLaunch(
+                    "A server already holds the socket \(socketPath). An engine from an earlier session may still be running: "
+                    + "find it in Activity Monitor, or stop it before starting another.")
+            }
             return failLaunch(
                 "The listen port \(configuration.port) is already in use. An engine from an earlier session may still be running: "
                 + "find it in Activity Monitor, or run lsof -nP -iTCP:\(configuration.port) -sTCP:LISTEN in Terminal.")
@@ -264,7 +287,7 @@ final class ProcessManager {
                 process: proc,
                 fileDescriptor: fd
             )
-            return HealthEndpoints(ready: readyURL, liveness: livenessURL)
+            return endpoints
         } catch {
             let message = "failed to launch: \(error.localizedDescription)"
             logSession.writeLog("\(message)\n")

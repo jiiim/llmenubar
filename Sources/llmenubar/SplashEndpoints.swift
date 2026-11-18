@@ -13,12 +13,16 @@ struct SplashEndpoints: Equatable, Sendable {
     let openAIBase: URL?
     /// The base URL Anthropic SDKs and clients take.
     let anthropicBase: URL?
+    /// The path of the socket, when the server listens on one. No URL reaches
+    /// it, so the three above are nil then.
+    let socketPath: String?
 
     init(host: String, port: Int) {
         let address = ListenAddress(host)
         chatPage = address.url(port: port, path: "/")
         openAIBase = address.url(port: port, path: "/v1")
         anthropicBase = address.url(port: port, path: "")
+        socketPath = address.socketPath
     }
 
     /// Whether the menu's address line opens the chat page: the server is
@@ -77,8 +81,13 @@ struct APIInformationMenu: Equatable {
 enum AddressActions {
     @MainActor
     static func copy(_ url: URL) {
+        copy(url.absoluteString)
+    }
+
+    @MainActor
+    static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     /// Copy a secret. Clipboard managers that follow the convention skip what

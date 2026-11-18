@@ -115,6 +115,93 @@ final class SplashCommandTests: XCTestCase {
         XCTAssertFalse(hubArguments.contains("--model-dir"))
     }
 
+    func testTheEffortGoesToTheOptionOfItsScope() {
+        var config = ServerConfiguration.Config()
+        config.huggingFaceModel = "owner/repo:Q4"
+        config.reasoningEffort = .high
+        let quiet: () -> LocalNetworkNames = { LocalNetworkNames(hostName: nil, ipv4: nil) }
+
+        var args = SplashCommand.arguments(configuration: config, networkNames: quiet)
+        XCTAssertTrue(args.contains("--default-reasoning-effort"))
+        XCTAssertFalse(args.contains("--reasoning-effort"))
+
+        config.reasoningScope = .everyRequest
+        args = SplashCommand.arguments(configuration: config, networkNames: quiet)
+        XCTAssertEqual(args[(args.firstIndex(of: "--reasoning-effort") ?? 0) + 1], "high")
+        XCTAssertFalse(args.contains("--default-reasoning-effort"), "Splash refuses the two together")
+
+        config.reasoningEffort = .off
+        args = SplashCommand.arguments(configuration: config, networkNames: quiet)
+        XCTAssertEqual(args[(args.firstIndex(of: "--reasoning-effort") ?? 0) + 1], "none")
+
+        config.reasoningEffort = .modelDefault
+        args = SplashCommand.arguments(configuration: config, networkNames: quiet)
+        XCTAssertFalse(args.contains("--reasoning-effort"), "no effort, no option, whatever the scope")
+    }
+
+    /// Splash refuses a launch that carries both kinds of effort, from a flag or
+    /// from a variable, so the choice made here removes the other kind's.
+    func testTheEffortChosenHereDropsTheOtherKindsVariable() {
+        var config = ServerConfiguration.Config()
+        config.huggingFaceModel = "owner/repo:Q4"
+        config.environment = "SPLASH_DEFAULT_REASONING_EFFORT=low\nSPLASH_REASONING_EFFORT=high\nOTHER=1"
+        let inherited = [
+            "SPLASH_DEFAULT_REASONING_EFFORT": "medium",
+            "SPLASH_REASONING_EFFORT": "max",
+            "PATH": "/usr/bin",
+        ]
+
+        // No effort chosen here: nothing is removed, and Splash is left to
+        // judge what the user set.
+        XCTAssertNil(SplashCommand.conflictingEffortVariable(configuration: config))
+        var environment = SplashCommand.launchEnvironment(configuration: config, inheriting: inherited)
+        XCTAssertEqual(environment["SPLASH_DEFAULT_REASONING_EFFORT"], "low")
+        XCTAssertEqual(environment["SPLASH_REASONING_EFFORT"], "high")
+
+        config.reasoningEffort = .low
+        config.reasoningScope = .everyRequest
+        XCTAssertEqual(SplashCommand.conflictingEffortVariable(configuration: config), "SPLASH_DEFAULT_REASONING_EFFORT")
+        environment = SplashCommand.launchEnvironment(configuration: config, inheriting: inherited)
+        XCTAssertNil(environment["SPLASH_DEFAULT_REASONING_EFFORT"], "inherited and written, both dropped")
+        XCTAssertEqual(environment["SPLASH_REASONING_EFFORT"], "high", "the same kind stays; the flag outranks it")
+        XCTAssertEqual(environment["OTHER"], "1")
+        XCTAssertEqual(environment["PATH"], "/usr/bin")
+        XCTAssertFalse(SplashCommand.environmentOverrides(configuration: config).contains { $0.name == "SPLASH_DEFAULT_REASONING_EFFORT" })
+        XCTAssertFalse(SplashCommand.preview(configuration: config).contains("SPLASH_DEFAULT_REASONING_EFFORT"))
+
+        config.reasoningScope = .requestsWithoutOne
+        XCTAssertEqual(SplashCommand.conflictingEffortVariable(configuration: config), "SPLASH_REASONING_EFFORT")
+        environment = SplashCommand.launchEnvironment(configuration: config, inheriting: inherited)
+        XCTAssertNil(environment["SPLASH_REASONING_EFFORT"])
+        XCTAssertEqual(environment["SPLASH_DEFAULT_REASONING_EFFORT"], "low")
+    }
+
+    func testAChatTemplateReachesTheCommandWithItsPathExpanded() {
+        var config = ServerConfiguration.Config()
+        config.huggingFaceModel = "owner/repo:Q4"
+        XCTAssertFalse(SplashCommand.arguments(configuration: config).contains("--chat-template-file"))
+
+        config.chatTemplatePath = "~/templates/mine.jinja"
+        let args = SplashCommand.arguments(configuration: config)
+        let at = args.firstIndex(of: "--chat-template-file")
+        XCTAssertNotNil(at)
+        XCTAssertEqual(
+            args[(at ?? 0) + 1],
+            FileManager.default.homeDirectoryForCurrentUser.path + "/templates/mine.jinja"
+        )
+    }
+
+    func testASocketHostIsGivenToSplashWithItsPathExpanded() {
+        var config = ServerConfiguration.Config()
+        config.huggingFaceModel = "owner/repo:Q4"
+        config.host = "unix:~/splash.sock"
+        let args = SplashCommand.arguments(configuration: config)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let at = args.firstIndex(of: "--host") ?? -1
+        XCTAssertEqual(args[at + 1], "unix:" + home + "/splash.sock")
+        XCTAssertFalse(args.contains("--allowed-host"), "a socket has no network names")
+    }
+
     func testEveryOptionReachesTheCommandInGroupOrder() {
         var config = base()
         config.offline = true
@@ -130,6 +217,7 @@ final class SplashCommandTests: XCTestCase {
         config.sparseKVMemory = "1200M"
         config.kvFormat = .bf16
         config.stateFormat = .bf16
+        config.cachedStates = .exact
         config.idleRelease = "30m"
         config.disableANE = true
         config.activations = .bf16
@@ -161,7 +249,7 @@ final class SplashCommandTests: XCTestCase {
                 "--no-webui",
                 "--max-memory", "28G", "--max-context", "100K",
                 "--ple-memory", "2G", "--expert-memory", "off", "--sparse-kv-memory", "1200M",
-                "--kv-format", "bf16", "--state-format", "bf16",
+                "--kv-format", "bf16", "--state-format", "bf16", "--cached-states", "exact",
                 "--idle-release", "30m", "--disable-ane", "--activations", "bf16",
                 "--max-cache-disk", "16G", "--max-cache-disk-writes", "200G",
                 "--persistent-cache", "--cache-dir", "/Volumes/cache/splash",

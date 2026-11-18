@@ -173,4 +173,12 @@ final class SplashBuildTests: XCTestCase {
         config.languageOnly = true
         XCTAssertNil(SplashDerivedState.compute(for: config).visionProjectorIssue)
     }
+
+    func testOnlyAnEngineWithTheOptionStoresCachedStatesApart() {
+        let before = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--state-format"])
+        let after = SplashBuild(identity: .splash(version: "1.7.0"), serveFlags: ["--model", "--state-format", "--cached-states"])
+        XCTAssertFalse(before.hasCachedStatesOption, "1.6.1 stores them in the recurrent state's format")
+        XCTAssertTrue(after.hasCachedStatesOption)
+        XCTAssertTrue(SplashBuild.unknown.hasCachedStatesOption, "an engine not inspected gets the benefit of the doubt")
+    }
 }
