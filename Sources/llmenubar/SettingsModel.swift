@@ -56,14 +56,16 @@ enum SettingsPane: String, CaseIterable, Hashable, Identifiable {
         case .host, .port, .allowedHosts, .allowedOrigins:
             return .server
         case .maxMemory, .maxContext, .pleMemory, .expertMemory, .sparseKVMemory, .idleRelease, .activations,
-             .cachedStates:
+             .cachedStates, .recalibrateANE:
             return .memory
         case .maxCacheDisk, .maxCacheDiskWrites, .cacheDirectory:
             return .cache
         case .apiKey, .localModelName, .servedModelNames:
             return .api
         case .reasoningEffort, .thinkingTokenBudget, .thinkingEndText,
-             .maxRequestSize, .maxImagePixels, .requestTimeout, .queueSize, .decodeShare:
+             .maxRequestSize, .maxImagePixels, .requestTimeout, .queueSize, .maxConcurrentRequests, .decodeShare,
+             .samplingTemperature, .samplingTopP, .samplingTopK, .samplingMinP,
+             .samplingPresencePenalty, .samplingFrequencyPenalty, .samplingRepetitionPenalty:
             return .requests
         case .environment:
             return .general

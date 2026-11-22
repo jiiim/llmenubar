@@ -169,6 +169,7 @@ final class ServerConfiguration {
         var activations: Activations = .standard
         var idleRelease = ""
         var disableANE = false
+        var recalibrateANE = false
 
         // SSD cache.
         var maxCacheDisk = ""
@@ -191,7 +192,15 @@ final class ServerConfiguration {
         var maxImagePixels = ""
         var requestTimeout = ""
         var queueSize = ""
+        var maxConcurrentRequests = ""
         var decodeShare = ""
+        var samplingTemperature = ""
+        var samplingTopP = ""
+        var samplingTopK = ""
+        var samplingMinP = ""
+        var samplingPresencePenalty = ""
+        var samplingFrequencyPenalty = ""
+        var samplingRepetitionPenalty = ""
         var verifyRows: VerifyRows = .standard
         var allowIdleSleep = false
 
@@ -636,6 +645,14 @@ extension ServerConfiguration.Config {
         config.maxImagePixels = trimmed(maxImagePixels)
         config.requestTimeout = trimmed(requestTimeout)
         config.queueSize = trimmed(queueSize)
+        config.maxConcurrentRequests = trimmed(maxConcurrentRequests)
+        config.samplingTemperature = trimmed(samplingTemperature)
+        config.samplingTopP = trimmed(samplingTopP)
+        config.samplingTopK = trimmed(samplingTopK)
+        config.samplingMinP = trimmed(samplingMinP)
+        config.samplingPresencePenalty = trimmed(samplingPresencePenalty)
+        config.samplingFrequencyPenalty = trimmed(samplingFrequencyPenalty)
+        config.samplingRepetitionPenalty = trimmed(samplingRepetitionPenalty)
         config.decodeShare = trimmed(decodeShare)
         config.logPath = path(logPath)
         return config
@@ -698,6 +715,7 @@ extension ServerConfiguration.Config {
         activations = c.value(.activations, d.activations)
         idleRelease = c.value(.idleRelease, d.idleRelease)
         disableANE = c.value(.disableANE, d.disableANE)
+        recalibrateANE = c.value(.recalibrateANE, d.recalibrateANE)
         maxCacheDisk = c.value(.maxCacheDisk, d.maxCacheDisk)
         maxCacheDiskWrites = c.value(.maxCacheDiskWrites, d.maxCacheDiskWrites)
         persistentCache = c.value(.persistentCache, d.persistentCache)
@@ -713,6 +731,14 @@ extension ServerConfiguration.Config {
         maxImagePixels = c.value(.maxImagePixels, d.maxImagePixels)
         requestTimeout = c.value(.requestTimeout, d.requestTimeout)
         queueSize = c.value(.queueSize, d.queueSize)
+        maxConcurrentRequests = c.value(.maxConcurrentRequests, d.maxConcurrentRequests)
+        samplingTemperature = c.value(.samplingTemperature, d.samplingTemperature)
+        samplingTopP = c.value(.samplingTopP, d.samplingTopP)
+        samplingTopK = c.value(.samplingTopK, d.samplingTopK)
+        samplingMinP = c.value(.samplingMinP, d.samplingMinP)
+        samplingPresencePenalty = c.value(.samplingPresencePenalty, d.samplingPresencePenalty)
+        samplingFrequencyPenalty = c.value(.samplingFrequencyPenalty, d.samplingFrequencyPenalty)
+        samplingRepetitionPenalty = c.value(.samplingRepetitionPenalty, d.samplingRepetitionPenalty)
         decodeShare = c.value(.decodeShare, d.decodeShare)
         verifyRows = c.value(.verifyRows, d.verifyRows)
         allowIdleSleep = c.value(.allowIdleSleep, d.allowIdleSleep)

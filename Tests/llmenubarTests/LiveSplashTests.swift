@@ -146,6 +146,12 @@ final class LiveSplashTests: XCTestCase {
         template.chatTemplatePath = "/tmp/chat.jinja"
         var socket = base
         socket.host = "unix:/tmp/llmb.sock"
+        var concurrent = base
+        concurrent.maxConcurrentRequests = "8"
+        var sampling = base
+        sampling.applySampling("temperature=0.7")
+        var recalibrate = base
+        recalibrate.recalibrateANE = true
 
         let cases: [(name: String, config: ServerConfiguration.Config, flag: String,
                      field: ServerConfiguration.Config.Field)] = [
@@ -155,6 +161,9 @@ final class LiveSplashTests: XCTestCase {
             // The socket is a value of `--host`, which every Splash lists; it
             // stands on `--reasoning-effort`, which came with it.
             ("UNIX socket", socket, "--reasoning-effort", .host),
+            ("concurrent requests", concurrent, "--max-concurrent-requests", .maxConcurrentRequests),
+            ("sampling defaults", sampling, "--sampling-default", .samplingTemperature),
+            ("recalibrate the Neural Engine", recalibrate, "--recalibrate-ane", .recalibrateANE),
         ]
         for item in cases {
             let flagged = item.config.validationErrors(derived: derived)[item.field]
@@ -167,6 +176,82 @@ final class LiveSplashTests: XCTestCase {
             requestsWithoutOne.validationErrors(derived: derived)[.reasoningEffort],
             "an effort for requests that set none is older than 1.7.0 and needs nothing new"
         )
+    }
+
+    /// What the app accepts for the options of 1.7.1 is what Splash's own
+    /// parser accepts: a value the app passes gets on to the model, which does
+    /// not exist; a value the app refuses is one the parser refuses.
+    ///
+    ///     LLMENUBAR_LIVE_SPLASH=/path/to/splash swift test \
+    ///         --filter LiveSplashTests/testTheAppAcceptsTheValuesOfSplash171ExactlyAsSplashDoes
+    func testTheAppAcceptsTheValuesOfSplash171ExactlyAsSplashDoes() throws {
+        guard let splash = ProcessInfo.processInfo.environment["LLMENUBAR_LIVE_SPLASH"]
+        else { throw XCTSkip("set LLMENUBAR_LIVE_SPLASH to run against a real Splash") }
+        guard case .success(let launcher) = SplashLauncher.resolve(path: splash) else {
+            return XCTFail("not a Splash: \(splash)")
+        }
+        var base = ServerConfiguration.Config()
+        base.splashPath = splash
+        base.huggingFaceModel = "owner/does-not-exist:Q4"
+        base.offline = true
+        base.port = 8_795
+        guard SplashDerivedState.compute(for: base).build.serveFlags.contains("--sampling-default") else {
+            throw XCTSkip("this Splash predates the options of 1.7.1")
+        }
+
+        func engineRefuses(_ config: ServerConfiguration.Config) throws -> Bool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: launcher.executable)
+            process.arguments = launcher.leadingArguments + SplashCommand.arguments(configuration: config)
+            process.environment = SplashCommand.launchEnvironment(configuration: config, launcher: launcher)
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            try process.run()
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            return !output.contains("cannot resolve")
+        }
+
+        var checked = 0
+        func compare(_ label: String, _ edit: (inout ServerConfiguration.Config) -> Void,
+                     field: ServerConfiguration.Config.Field) throws {
+            var config = base
+            edit(&config)
+            let appRefuses = config.validationErrors()[field] != nil
+            let engine = try engineRefuses(config)
+            XCTAssertEqual(appRefuses, engine, "\(label): the app refuses \(appRefuses), Splash \(engine)")
+            checked += 1
+        }
+        let sampling = [
+            "temperature=0", "temperature=2", "temperature=2.1", "temperature=-1", "temperature=abc", "temperature=nan",
+            "top_p=1", "top_p=0", "top_p=2", "top_k=0", "top_k=-1", "top_k=40", "top_k=1.5",
+            "min_p=0", "min_p=1", "min_p=1.5", "presence_penalty=-2", "presence_penalty=3",
+            "frequency_penalty=2", "frequency_penalty=-2.5", "repetition_penalty=1.1", "repetition_penalty=0",
+            "temperature=1e0", "temperature=1E-1", "temperature=.5", "temperature=1.", "temperature=+1",
+            "temperature=1_0e-1", "temperature=1e-400", "temperature=1e999", "temperature=inf", "temperature=0x1",
+            "temperature=1__0", "temperature=_1", "temperature=1_", "temperature=1e", "temperature=e1",
+            "temperature=.", "temperature=", "temperature=１", "top_k=+5", "top_k=1_0", "top_k=-0", "top_k=-01",
+            "top_k=-2", "top_k=5.0", "top_k=1e1", "top_k=99999999999999999999", "top_k=-99999999999999999999",
+            "top_p=1e-45", "top_p=1.5e-45", "top_p=5e-324", "repetition_penalty=3.4e38",
+            "repetition_penalty=3.5e38", "repetition_penalty=1e-45", "repetition_penalty=1.5e-45",
+        ]
+        for text in sampling {
+            let name = String(text.prefix { $0 != "=" })
+            let parameter = try XCTUnwrap(ServerConfiguration.Config.samplingParameters.first { $0.name == name })
+            try compare(text, { $0.applySampling(text) }, field: parameter.field)
+        }
+        let whole = ["0", "1", "4", "8", "9", "x", "2.5", "+3", "03", "４", " 5", "3_0", "1_0", "1e0", "-1"]
+        for text in whole {
+            try compare("concurrent \(text)", { $0.maxConcurrentRequests = text }, field: .maxConcurrentRequests)
+        }
+        for text in ["0", "1", "32", "+3", "１", "1_0", "x", "-1", "1.5"] {
+            try compare("queue \(text)", { $0.queueSize = text }, field: .queueSize)
+        }
+        try compare("recalibrate", { $0.recalibrateANE = true }, field: .recalibrateANE)
+        try compare("recalibrate with the Neural Engine off", { $0.recalibrateANE = true; $0.disableANE = true },
+                    field: .recalibrateANE)
+        XCTAssertEqual(checked, sampling.count + whole.count + 9 + 2)
     }
 
     /// `--host unix:PATH` is a value of an option every Splash lists, so the
@@ -283,6 +368,13 @@ final class LiveSplashTests: XCTestCase {
         config.reasoningEffort = .low
         config.reasoningScope = .everyRequest
         config.cachedStates = .exact
+        // The options of 1.7.1, where the engine has them.
+        let serves171 = SplashDerivedState.compute(for: config).build.serveFlags.contains("--sampling-default")
+        if serves171 {
+            config.maxConcurrentRequests = "2"
+            config.applySampling("temperature=0.5, top_k=40")
+            config.recalibrateANE = true
+        }
         // A template of the model's family, when one is given: Splash refuses
         // one that cannot render a conversation, so serving proves it did.
         let template = environment["LLMENUBAR_LIVE_TEMPLATE"]
@@ -348,6 +440,11 @@ final class LiveSplashTests: XCTestCase {
         let log = try String(contentsOfFile: config.logPath, encoding: .utf8)
         XCTAssertTrue(log.contains("--reasoning-effort low"), "the launch line names the option")
         XCTAssertTrue(log.contains("--cached-states exact"))
+        if serves171 {
+            XCTAssertTrue(log.contains("--max-concurrent-requests 2"))
+            XCTAssertTrue(log.contains("--sampling-default temperature=0.5 --sampling-default top_k=40"))
+            XCTAssertTrue(log.contains("--recalibrate-ane"))
+        }
         // The app stores a path in its own spelling: `/private/var` is `/var`.
         if template != nil {
             XCTAssertTrue(log.contains("--chat-template-file " + PathText.expandingTilde(config.chatTemplatePath)))

@@ -72,6 +72,7 @@ enum SplashCommand {
         if let storage = config.cachedStates.argument { args += ["--cached-states", storage] }
         valued("--idle-release", config.idleRelease, into: &args)
         if config.disableANE { args.append("--disable-ane") }
+        if config.recalibrateANE { args.append("--recalibrate-ane") }
         if let activations = config.activations.argument { args += ["--activations", activations] }
 
         // SSD cache.
@@ -99,11 +100,14 @@ enum SplashCommand {
             args += ["--chat-template-file", PathText.expandingTilde(config.chatTemplatePath)]
         }
 
+        for item in config.samplingArguments { args += ["--sampling-default", item] }
+
         // Requests.
         valued("--max-request-size", config.maxRequestSize, into: &args)
         valued("--max-image-pixels", config.maxImagePixels, into: &args)
         valued("--request-timeout", config.requestTimeout, into: &args)
         valued("--queue-size", config.queueSize, into: &args)
+        valued("--max-concurrent-requests", config.maxConcurrentRequests, into: &args)
         valued("--decode-share", config.decodeShare, into: &args)
         if let rows = config.verifyRows.argument { args += ["--verify-rows", rows] }
         if config.allowIdleSleep { args.append("--allow-idle-sleep") }

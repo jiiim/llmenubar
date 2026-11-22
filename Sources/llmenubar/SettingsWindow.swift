@@ -20,6 +20,8 @@ struct SettingsView: View {
     @State var paneContentHeight: [SettingsPane: CGFloat] = [:]
     @State var validationMessages = SettingsValidationMessages()
     @State var isSettingsVisible = false
+    /// Whether the user opened or closed the sampling values; nil leaves it to what is set.
+    @State var samplingOpen: Bool?
     @StateObject private var paneSelection = SettingsPaneSelection()
     var selectedPaneRaw: String {
         get { paneSelection.rawValue }

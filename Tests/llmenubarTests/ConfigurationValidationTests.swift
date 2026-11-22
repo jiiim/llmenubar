@@ -305,6 +305,97 @@ final class ConfigurationValidationTests: XCTestCase {
         XCTAssertEqual(config.validationErrors(derived: derived), [:])
     }
 
+    func testTheOptionsOfSplash171NeedABuildThatTakesThem() {
+        var derived = SplashDerivedState()
+        derived.build = SplashBuild(identity: .splash(version: "1.7.0"), serveFlags: ["--model", "--port", "--host"])
+        var config = valid()
+        XCTAssertEqual(config.validationErrors(derived: derived), [:], "the defaults need no option")
+
+        config.maxConcurrentRequests = "8"
+        config.applySampling("temperature=0.7")
+        config.recalibrateANE = true
+        let errors = config.validationErrors(derived: derived)
+        XCTAssertTrue(errors[.maxConcurrentRequests]?.contains("--max-concurrent-requests") == true)
+        XCTAssertTrue(errors[.samplingTemperature]?.contains("--sampling-default") == true)
+        XCTAssertTrue(errors[.recalibrateANE]?.contains("--recalibrate-ane") == true)
+        XCTAssertEqual(SettingsPane.containing(.maxConcurrentRequests), .requests)
+        for parameter in Config.samplingParameters {
+            XCTAssertEqual(SettingsPane.containing(parameter.field), .requests)
+        }
+        XCTAssertEqual(SettingsPane.containing(.recalibrateANE), .memory)
+
+        derived.build = SplashBuild(
+            identity: .splash(version: "1.7.1"),
+            serveFlags: ["--model", "--port", "--host", "--max-concurrent-requests", "--sampling-default", "--recalibrate-ane"]
+        )
+        XCTAssertEqual(config.validationErrors(derived: derived), [:])
+    }
+
+    func testConcurrentRequestsTakeOneToEight() {
+        var config = valid()
+        for good in ["1", "4", "8", "+3", "03", "４", " 5 "] {
+            config.maxConcurrentRequests = good
+            XCTAssertNil(config.validationErrors()[.maxConcurrentRequests], good)
+        }
+        for bad in ["0", "9", "x", "2.5", "-1", "3_0", "1e0"] {
+            config.maxConcurrentRequests = bad
+            XCTAssertNotNil(config.validationErrors()[.maxConcurrentRequests], bad)
+        }
+    }
+
+    func testSamplingDefaultsFollowTheRangesSplashChecks() {
+        var config = valid()
+        let good = [
+            "temperature=0", "temperature=2", "top_p=1", "top_p=0.01", "top_k=0", "top_k=-1", "top_k=40",
+            "min_p=0", "min_p=1", "presence_penalty=-2", "frequency_penalty=2", "repetition_penalty=1.1",
+            "temperature = 0.7, top_p=0.9", "temperature=",
+            "temperature=1e0", "temperature=1E-1", "temperature=.5", "temperature=1.", "temperature=+1",
+            "temperature=1_0e-1", "temperature=1e-400", "top_k=+5", "top_k=1_0", "top_k=-0", "top_k=-01",
+            "top_k=99999999999999999999", "top_p=1.5e-45", "repetition_penalty=3.4e38", "temperature=１",
+        ]
+        for text in good {
+            config = valid()
+            config.applySampling(text)
+            XCTAssertTrue(Config.samplingParameters.allSatisfy { config.validationErrors()[$0.field] == nil }, text)
+        }
+        let bad = [
+            "temperature=abc", "temperature=-1", "temperature=2.1",
+            "top_p=0", "top_p=2", "top_k=1.5", "min_p=1.5", "presence_penalty=3", "frequency_penalty=-2.5",
+            "repetition_penalty=0", "temperature=nan", "temperature=inf", "temperature=0x1", "temperature=1__0",
+            "temperature=_1", "temperature=1_", "temperature=1e", "temperature=e1", "temperature=.",
+            "top_k=-2", "top_k=-99999999999999999999", "top_k=5.0", "top_k=1e1", "top_p=1e-45", "top_p=5e-324",
+            "repetition_penalty=3.5e38", "repetition_penalty=1e-45", "temperature=1e999",
+        ]
+        for text in bad {
+            config = valid()
+            config.applySampling(text)
+            XCTAssertFalse(Config.samplingParameters.allSatisfy { config.validationErrors()[$0.field] == nil }, text)
+        }
+        config = valid()
+        config.applySampling("repetition_penalty=3.5e38")
+        XCTAssertTrue(config.validationErrors()[.samplingRepetitionPenalty]?.contains("3.4028235e38") == true)
+        config = valid()
+        config.applySampling("top_k=-2")
+        XCTAssertEqual(config.validationErrors()[.samplingTopK], "Use a whole number, -1 or more.")
+    }
+
+    func testBlankSamplingValuesAreNotPassed() {
+        var config = valid()
+        XCTAssertFalse(config.hasSamplingDefaults)
+        XCTAssertEqual(config.samplingArguments, [])
+        config.applySampling("top_k=40, temperature=0.7")
+        XCTAssertTrue(config.hasSamplingDefaults)
+        XCTAssertEqual(config.samplingArguments, ["temperature=0.7", "top_k=40"], "in Splash's order")
+    }
+
+    func testRecalibratingNeedsTheNeuralEngineOn() {
+        var config = valid()
+        config.recalibrateANE = true
+        XCTAssertNil(config.validationErrors()[.recalibrateANE])
+        config.disableANE = true
+        XCTAssertNotNil(config.validationErrors()[.recalibrateANE])
+    }
+
     func testAnEffortForEveryRequestNeedsABuildThatTakesIt() {
         var derived = SplashDerivedState()
         derived.build = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--port", "--host", "--default-reasoning-effort"])
@@ -448,5 +539,18 @@ final class ConfigurationValidationTests: XCTestCase {
         XCTAssertTrue(restored.launchAtLogin)
         XCTAssertEqual(restored.maxContext, "")
         XCTAssertEqual(restored.port, 8_000)
+    }
+}
+
+extension ServerConfiguration.Config {
+    /// Sets the sampling values from `name=value` items separated by commas.
+    mutating func applySampling(_ text: String) {
+        for item in text.split(separator: ",") {
+            let parts = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, let parameter = Self.samplingParameters.first(where: { $0.name == parts[0] })
+            else { continue }
+            self[keyPath: parameter.keyPath] = parts[1]
+        }
     }
 }

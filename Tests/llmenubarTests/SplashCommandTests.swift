@@ -234,6 +234,8 @@ final class SplashCommandTests: XCTestCase {
         config.maxImagePixels = "1048576"
         config.requestTimeout = "30m"
         config.queueSize = "8"
+        config.maxConcurrentRequests = "6"
+        config.applySampling("temperature = 0.7, top_k=40")
         config.decodeShare = "0.25"
         config.verifyRows = .all
         config.allowIdleSleep = true
@@ -256,11 +258,25 @@ final class SplashCommandTests: XCTestCase {
                 "--served-model-name", "gpt-4o", "--announce-served-name",
                 "--default-reasoning-effort", "none",
                 "--thinking-token-budget", "2048", "--thinking-end-text", "Now the answer.",
+                "--sampling-default", "temperature=0.7", "--sampling-default", "top_k=40",
                 "--max-request-size", "64M", "--max-image-pixels", "1048576",
-                "--request-timeout", "30m", "--queue-size", "8", "--decode-share", "0.25",
+                "--request-timeout", "30m", "--queue-size", "8", "--max-concurrent-requests", "6",
+                "--decode-share", "0.25",
                 "--verify-rows", "all", "--allow-idle-sleep",
             ]
         )
+    }
+
+    func testTheNeuralEngineIsRecalibratedAfterTheGPUOnlyOption() throws {
+        var config = base()
+        config.recalibrateANE = true
+        let args = SplashCommand.arguments(configuration: config, networkNames: { LocalNetworkNames(hostName: nil, ipv4: nil) })
+        let recalibrate = try XCTUnwrap(args.firstIndex(of: "--recalibrate-ane"))
+        XCTAssertEqual(args.firstIndex(of: "--disable-ane").map { _ in recalibrate - 1 }, nil, "off unless asked")
+        config.disableANE = true
+        let both = SplashCommand.arguments(configuration: config, networkNames: { LocalNetworkNames(hostName: nil, ipv4: nil) })
+        XCTAssertEqual(try XCTUnwrap(both.firstIndex(of: "--recalibrate-ane")), try XCTUnwrap(both.firstIndex(of: "--disable-ane")) + 1)
+        XCTAssertFalse(SplashCommand.arguments(configuration: base(), networkNames: { LocalNetworkNames(hostName: nil, ipv4: nil) }).contains("--recalibrate-ane"))
     }
 
     func testDependentOptionsAreLeftOffWhenTheirParentIsOff() {

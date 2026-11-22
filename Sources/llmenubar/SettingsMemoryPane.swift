@@ -105,6 +105,13 @@ extension SettingsView {
                 }
                 Toggle("Prefill on the GPU alone", isOn: $editor.draft.disableANE)
                     .help("Turns off the Neural Engine for long prompts on a dense model.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Recalibrate the Neural Engine", isOn: $editor.draft.recalibrateANE)
+                        .help("Measures the Neural Engine's share of long prompts again at every start while this is on, instead of taking the one this Mac kept.")
+                    if let error = validationErrors[.recalibrateANE] {
+                        validationLabel(error, for: .recalibrateANE)
+                    }
+                }
             }
         }
     }

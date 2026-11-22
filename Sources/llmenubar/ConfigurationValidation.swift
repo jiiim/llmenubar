@@ -97,10 +97,12 @@ extension ServerConfiguration.Config {
         case huggingFaceModel, modelPath, localModelName, visionProjectorPath, draftModel, revision
         case modelCacheDirectory, chatTemplatePath
         case host, port, allowedHosts, allowedOrigins, apiKey, huggingFaceToken
-        case maxMemory, maxContext, pleMemory, expertMemory, sparseKVMemory, idleRelease, activations, cachedStates
+        case maxMemory, maxContext, pleMemory, expertMemory, sparseKVMemory, idleRelease, activations, cachedStates, recalibrateANE
         case maxCacheDisk, maxCacheDiskWrites, cacheDirectory
         case servedModelNames, reasoningEffort, thinkingTokenBudget, thinkingEndText
-        case maxRequestSize, maxImagePixels, requestTimeout, queueSize, decodeShare
+        case maxRequestSize, maxImagePixels, requestTimeout, queueSize, maxConcurrentRequests, decodeShare
+        case samplingTemperature, samplingTopP, samplingTopK, samplingMinP
+        case samplingPresencePenalty, samplingFrequencyPenalty, samplingRepetitionPenalty
         case logPath, logMaxSizeMB, environment
     }
 
@@ -298,10 +300,20 @@ extension ServerConfiguration.Config {
             SplashOptionValues.seconds($0) != nil
         }
         check(queueSize, .queueSize, "Use a whole number greater than 0.", &errors) {
-            (SplashOptionValues.wholeNumber($0) ?? 0) > 0
+            (SplashOptionValues.pythonInteger($0) ?? 0) > 0
+        }
+        check(maxConcurrentRequests, .maxConcurrentRequests, "Use a whole number from \(SplashOptionValues.concurrentRequestRange.lowerBound) to \(SplashOptionValues.concurrentRequestRange.upperBound).", &errors) {
+            SplashOptionValues.pythonInteger($0).map(SplashOptionValues.concurrentRequestRange.contains) ?? false
         }
         check(decodeShare, .decodeShare, "Use a number such as 0.5.", &errors) {
             SplashOptionValues.nonnegativeDecimal($0) != nil
+        }
+
+        if recalibrateANE, disableANE {
+            fail(.recalibrateANE, "The Neural Engine is off, so there is nothing to calibrate. Turn off “Prefill on the GPU alone” or this.")
+        }
+        for parameter in Self.samplingParameters {
+            if let issue = samplingIssue(parameter) { fail(parameter.field, issue) }
         }
 
         // Diagnostics.
@@ -366,7 +378,12 @@ extension ServerConfiguration.Config {
         add(.maxImagePixels, "--max-image-pixels", when: !maxImagePixels.isEmpty)
         add(.requestTimeout, "--request-timeout", when: !requestTimeout.isEmpty)
         add(.queueSize, "--queue-size", when: !queueSize.isEmpty)
+        add(.maxConcurrentRequests, "--max-concurrent-requests", when: !maxConcurrentRequests.isEmpty)
         add(.decodeShare, "--decode-share", when: !decodeShare.isEmpty)
+        for parameter in Self.samplingParameters {
+            add(parameter.field, "--sampling-default", when: !self[keyPath: parameter.keyPath].isEmpty)
+        }
+        add(.recalibrateANE, "--recalibrate-ane", when: recalibrateANE)
         add(.activations, "--activations", when: activations != .standard)
         add(.cachedStates, "--cached-states", when: cachedStates != .standard)
         return options

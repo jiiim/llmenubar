@@ -122,6 +122,119 @@ enum SplashOptionValues {
 
     static let imagePixelRange = 65_536...4_194_304
 
+    static let concurrentRequestRange = 1...8
+
+    // MARK: Sampling defaults
+
+    /// What `--sampling-default NAME=VALUE` takes for one name, as Splash
+    /// checks it. Its bounds are 32-bit floats: a value is in range when it
+    /// lies between the smallest and the largest a 32-bit float can hold.
+    enum SamplingRule {
+        case closed(Double, Double)
+        /// Above zero: from a 32-bit float's smallest step from zero up to the bound.
+        case aboveZero(upTo: Double)
+        /// A whole number, `-1` or more.
+        case wholeNumber
+
+        private static let smallest = Double(Float.leastNonzeroMagnitude)
+
+        func accepts(_ text: String) -> Bool {
+            if case .wholeNumber = self { return SplashOptionValues.pythonInteger(text).map { $0 >= -1 } ?? false }
+            guard let value = SplashOptionValues.pythonFloat(text) else { return false }
+            switch self {
+            case .closed(let low, let high): return (low...high).contains(value)
+            case .aboveZero(let high): return (Self.smallest...high).contains(value)
+            case .wholeNumber: return false
+            }
+        }
+
+        /// What the value is, for a note and a message: "a number from 0 to 2".
+        var requirement: String {
+            switch self {
+            case .closed(let low, let high): return "a number from \(Self.shown(low)) to \(Self.shown(high))"
+            case .aboveZero(let high):
+                return "a number above 0 and up to \(high == 1 ? "1" : "3.4028235e38")"
+            case .wholeNumber: return "a whole number, -1 or more"
+            }
+        }
+
+        private static func shown(_ value: Double) -> String {
+            value == value.rounded() && abs(value) < 1e15 ? String(Int(value)) : String(value)
+        }
+    }
+
+    /// The digits of `text` as ASCII with the underscores that may separate
+    /// them removed, or nil when a digit is missing or an underscore does not
+    /// sit between two. Splash reads values as Python does, which takes any
+    /// script's decimal digits.
+    private static func asciiDigits(_ text: Substring) -> String? {
+        var result = ""
+        var previousWasDigit = false
+        var pendingUnderscore = false
+        for scalar in text.unicodeScalars {
+            if scalar == "_" {
+                guard previousWasDigit else { return nil }
+                pendingUnderscore = true
+                previousWasDigit = false
+            } else if scalar.properties.generalCategory == .decimalNumber,
+                      let value = scalar.properties.numericValue {
+                result += String(Int(value))
+                previousWasDigit = true
+                pendingUnderscore = false
+            } else {
+                return nil
+            }
+        }
+        return previousWasDigit && !pendingUnderscore ? result : nil
+    }
+
+    /// A number written as Python's `float` takes it: an optional sign,
+    /// digits with an optional point, and an optional exponent. Nil when it is
+    /// not one or is not finite.
+    static func pythonFloat(_ text: String) -> Double? {
+        var rest = Substring(text.trimmingCharacters(in: .whitespaces))
+        var sign = ""
+        if let first = rest.first, first == "+" || first == "-" {
+            sign = first == "-" ? "-" : ""
+            rest = rest.dropFirst()
+        }
+        var exponent = ""
+        if let marker = rest.firstIndex(where: { $0 == "e" || $0 == "E" }) {
+            var power = rest[rest.index(after: marker)...]
+            var powerSign = ""
+            if let first = power.first, first == "+" || first == "-" {
+                powerSign = first == "-" ? "-" : ""
+                power = power.dropFirst()
+            }
+            guard let digits = asciiDigits(power) else { return nil }
+            exponent = "e" + powerSign + digits
+            rest = rest[..<marker]
+        }
+        let halves = rest.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard halves.count <= 2, !halves.isEmpty else { return nil }
+        let whole = halves[0].isEmpty ? "" : asciiDigits(halves[0])
+        let fraction = halves.count == 2 && !halves[1].isEmpty ? asciiDigits(halves[1]) : ""
+        guard let whole, let fraction, !(whole.isEmpty && fraction.isEmpty) else { return nil }
+        guard let value = Double(sign + (whole.isEmpty ? "0" : whole) + "." + (fraction.isEmpty ? "0" : fraction) + exponent),
+              value.isFinite
+        else { return nil }
+        return value
+    }
+
+    /// A whole number written as Python's `int` takes it: an optional sign
+    /// and digits. Values beyond `Int` saturate, which no bound here tells apart.
+    static func pythonInteger(_ text: String) -> Int? {
+        var rest = Substring(text.trimmingCharacters(in: .whitespaces))
+        var negative = false
+        if let first = rest.first, first == "+" || first == "-" {
+            negative = first == "-"
+            rest = rest.dropFirst()
+        }
+        guard let digits = asciiDigits(rest) else { return nil }
+        guard let magnitude = Int(digits) else { return negative ? Int.min : Int.max }
+        return negative ? -magnitude : magnitude
+    }
+
     // MARK: Names and lists
 
     /// Items of a comma-separated field, trimmed, without empty ones.

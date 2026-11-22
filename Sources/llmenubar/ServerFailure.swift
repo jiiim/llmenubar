@@ -105,7 +105,11 @@ struct ServerLaunchFailure: Equatable, Identifiable {
         if lowercased.contains("socket") { return .server }
         if lowercased.contains("chat template") { return .model }
         if lowercased.contains("cached") { return .memory }
-        if lowercased.contains("reasoning") || lowercased.contains("thinking") { return .requests }
+        if lowercased.contains("reasoning") || lowercased.contains("thinking")
+            || lowercased.contains("sampling") || lowercased.contains("concurrent") {
+            return .requests
+        }
+        if lowercased.contains("neural engine") || lowercased.contains("calibrat") { return .memory }
         if lowercased.contains("model") || lowercased.contains("projector")
             || lowercased.contains("draft") {
             return .model

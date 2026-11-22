@@ -75,6 +75,53 @@ extension SettingsView {
                     prompt: "32",
                     note: "Requests taken at once, running or waiting; more are turned away."
                 )
+                textRow(
+                    "Running at once",
+                    text: $editor.draft.maxConcurrentRequests,
+                    field: .maxConcurrentRequests,
+                    prompt: "4",
+                    note: "Requests the engine runs together, \(SplashOptionValues.concurrentRequestRange.lowerBound) to \(SplashOptionValues.concurrentRequestRange.upperBound). More let more clients be answered together, each a little slower, and take memory that can leave less context."
+                )
+            }
+
+            Section {
+                let expanded = samplingExpanded
+                Button {
+                    expanded.wrappedValue.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.right")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+                            .frame(width: 16)
+                        Text("Sampling defaults")
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(expanded.wrappedValue ? "Expanded" : "Collapsed")
+                .accessibilityHint("Shows or hides the sampling values")
+
+                if expanded.wrappedValue {
+                    Text("Values for requests that set none. A blank one keeps the default.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    ForEach(ServerConfiguration.Config.samplingParameters, id: \.name) { parameter in
+                        textRow(
+                            parameter.title,
+                            text: Binding(
+                                get: { editor.draft[keyPath: parameter.keyPath] },
+                                set: { editor.draft[keyPath: parameter.keyPath] = $0 }
+                            ),
+                            field: parameter.field,
+                            prompt: parameter.defaultText,
+                            note: "Takes \(parameter.rule.requirement). \(parameter.defaultNote)",
+                            monospaced: true
+                        )
+                    }
+                }
             }
 
             Section("Behaviour") {
@@ -93,4 +140,17 @@ extension SettingsView {
         }
     }
 
+    /// Open when a value is set or wrong, and otherwise until the user opens it.
+    private var samplingExpanded: Binding<Bool> {
+        Binding(
+            get: {
+                let draft = editor.draft
+                let errors = ServerConfiguration.Config.samplingParameters.contains {
+                    validationErrors[$0.field] != nil
+                }
+                return errors || (samplingOpen ?? draft.hasSamplingDefaults)
+            },
+            set: { samplingOpen = $0 }
+        )
+    }
 }
