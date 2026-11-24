@@ -38,22 +38,42 @@ struct SplashEndpoints: Equatable, Sendable {
     }
 }
 
-/// The context window every Splash-supported model family is built with, in
-/// tokens: 256K, where K is 1024. Splash serves up to it without YaRN, and
-/// its documentation gives it for every supported family.
+/// The context window the Qwen families are built with, in tokens: 256K,
+/// where K is 1024. Splash serves up to it without YaRN. Inkling-2-Mini has
+/// a window of its own, `inklingTokens`.
 enum NativeContextWindow {
     static let tokens = 262_144
+    /// Inkling-2-Mini's window, 1024K, and the most Splash serves of it.
+    static let inklingTokens = 1_048_576
+    static let inklingServedTokens = 1_010_000
 
     /// `262,144 tokens (256K)`, with commas in every locale.
-    static var description: String {
+    static var description: String { description(of: tokens) }
+
+    /// `1,048,576 tokens (1024K)`.
+    static func description(of tokens: Int) -> String {
+        "\(grouped(tokens)) tokens (\(tokens / 1_024)K)"
+    }
+
+    /// `1,010,000`, with commas in every locale.
+    static func grouped(_ number: Int) -> String {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.groupingSeparator = ","
         formatter.groupingSize = 3
-        let number = formatter.string(from: NSNumber(value: tokens)) ?? String(tokens)
-        return "\(number) tokens (\(tokens / 1_024)K)"
+        return formatter.string(from: NSNumber(value: number)) ?? String(number)
+    }
+
+    /// What the Context length setting says of the window of the model
+    /// `config` serves.
+    static func note(for config: ServerConfiguration.Config) -> String {
+        let units = "Tokens, with K for 1024 or M for a million, such as 100K or 1M."
+        if ModelFamily.isInkling(config) {
+            return "\(units) The native window is \(description(of: inklingTokens)), and the engine serves up to \(grouped(inklingServedTokens)) of them. Auto serves as much as memory holds."
+        }
+        return "\(units) The native window is \(description). Past it the engine turns on YaRN, which changes answers at every length. Auto serves the native window when memory holds it, and otherwise as much as memory holds."
     }
 }
 

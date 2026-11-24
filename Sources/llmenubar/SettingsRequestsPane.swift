@@ -23,7 +23,7 @@ extension SettingsView {
                 .disabled(editor.draft.reasoningEffort == .modelDefault)
                 .help("A request that sets its own effort keeps it, unless this is Every request.")
                 if editor.draft.reasoningEffort != .modelDefault, editor.draft.reasoningScope == .everyRequest {
-                    Text("Every request thinks at this effort, whatever the client asks. Off stops thinking for clients that ask for it on every turn. A model that decides for itself whether to think, such as Flint, does not start with this.")
+                    Text("Every request thinks at this effort, whatever the client asks. Off stops thinking for clients that ask for it on every turn. A model that decides for itself whether to think, such as Flint or Inkling, does not start with this.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

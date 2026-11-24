@@ -6,6 +6,34 @@ import XCTest
 @testable import llmenubar
 
 final class SplashBuildTests: XCTestCase {
+    func testAReleaseNumberIsReadFromTheVersionText() {
+        XCTAssertEqual(SplashVersion(parsing: "1.7.2"), SplashVersion(1, 7, 2))
+        XCTAssertEqual(SplashVersion(parsing: "1.7"), SplashVersion(1, 7, 0))
+        XCTAssertEqual(SplashVersion(parsing: "1.10.0"), SplashVersion(1, 10, 0))
+        XCTAssertEqual(SplashVersion(parsing: "1.7.1-42-g705ad7ac"), SplashVersion(1, 7, 1))
+        XCTAssertNil(SplashVersion(parsing: "1.7.2.3"))
+        XCTAssertNil(SplashVersion(parsing: "1"))
+        XCTAssertNil(SplashVersion(parsing: ""))
+        XCTAssertNil(SplashVersion(parsing: "source checkout"))
+        XCTAssertNil(SplashVersion(parsing: "1.x.2"))
+        XCTAssertNil(SplashVersion(parsing: "-1.7.2"))
+    }
+
+    func testReleasesAreOrderedByNumberNotByText() {
+        XCTAssertLessThan(SplashVersion(1, 7, 2), SplashVersion(1, 10, 0))
+        XCTAssertLessThan(SplashVersion(1, 7, 9), SplashVersion(1, 8, 0))
+        XCTAssertLessThan(SplashVersion(1, 99, 99), SplashVersion(2, 0, 0))
+    }
+
+    func testABuildIsAtLeastARelease() {
+        let minimum = SplashVersion(1, 7, 2)
+        XCTAssertTrue(SplashBuild(identity: .splash(version: "1.7.2"), serveFlags: []).isAtLeast(minimum))
+        XCTAssertFalse(SplashBuild(identity: .splash(version: "1.7.1"), serveFlags: []).isAtLeast(minimum))
+        XCTAssertFalse(SplashBuild(identity: .splash(version: "source checkout"), serveFlags: []).isAtLeast(minimum))
+        XCTAssertFalse(SplashBuild.unknown.isAtLeast(minimum))
+        XCTAssertFalse(SplashBuild(identity: .notSplash, serveFlags: []).isAtLeast(minimum))
+    }
+
     func testVersionOutput() {
         XCTAssertEqual(SplashBuild.parseIdentity(fromVersionOutput: "Splash 1.5.0\n"), .splash(version: "1.5.0"))
         XCTAssertEqual(SplashBuild.parseIdentity(fromVersionOutput: "Splash 12.0\n"), .splash(version: "12.0"))

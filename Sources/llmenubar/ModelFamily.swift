@@ -19,6 +19,11 @@ enum ModelFamily {
         }
     }
 
+    /// Whether `config` is set to serve an Inkling model.
+    static func isInkling(_ config: ServerConfiguration.Config) -> Bool {
+        key(of: config)?.contains("inkling") == true
+    }
+
     /// `unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M` -> `unsloth/qwen3.8-27b-gguf`.
     /// Nil until the text is a complete model ID.
     static func key(huggingFaceModel text: String) -> String? {

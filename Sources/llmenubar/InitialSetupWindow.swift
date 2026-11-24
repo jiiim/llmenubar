@@ -472,7 +472,7 @@ struct InitialSetupView: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.body, design: .monospaced))
                             .accessibilityLabel("Hugging Face model")
-                        ModelSuggestionsMenu(model: $huggingFaceModel)
+                        ModelSuggestionsMenu(model: $huggingFaceModel, build: chosenBuild)
                     }
                     Text("For example unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M. The engine downloads it on the first start.")
                         .font(.footnote)

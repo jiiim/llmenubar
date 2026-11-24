@@ -36,6 +36,24 @@ final class SplashEndpointsTests: XCTestCase {
         XCTAssertEqual(NativeContextWindow.description, "262,144 tokens (256K)")
     }
 
+    func testTheContextNoteNamesTheWindowOfTheModelServed() {
+        var config = ServerConfiguration.Config()
+        config.huggingFaceModel = "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M"
+        XCTAssertTrue(NativeContextWindow.note(for: config).contains("262,144 tokens (256K)"))
+        XCTAssertTrue(NativeContextWindow.note(for: config).contains("YaRN"))
+
+        config.huggingFaceModel = "unsloth/Inkling-2-Mini-GGUF:UD-Q4_K_M"
+        let inkling = NativeContextWindow.note(for: config)
+        XCTAssertTrue(inkling.contains("1,048,576 tokens (1024K)"), inkling)
+        XCTAssertTrue(inkling.contains("1,010,000"), inkling)
+        XCTAssertFalse(inkling.contains("262,144"), inkling)
+        XCTAssertFalse(inkling.contains("YaRN"), inkling)
+
+        config.modelSource = .local
+        config.modelPath = "/models/Inkling-2-Mini-UD-Q8_K_XL.gguf"
+        XCTAssertTrue(NativeContextWindow.note(for: config).contains("1,048,576"))
+    }
+
     func testTheLogDefaultsToTenMegabytes() {
         XCTAssertEqual(ServerConfiguration.Config().logMaxSizeMB, 10)
     }

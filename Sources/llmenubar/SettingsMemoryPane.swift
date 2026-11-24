@@ -25,7 +25,7 @@ extension SettingsView {
                     text: $editor.draft.maxContext,
                     field: .maxContext,
                     prompt: "Auto",
-                    note: "Tokens, with K for 1024 or M for a million, such as 100K or 1M. The native window is \(NativeContextWindow.description). Past it the engine turns on YaRN, which changes answers at every length. Auto serves the native window when memory holds it, and otherwise as much as memory holds."
+                    note: NativeContextWindow.note(for: draft)
                 )
                 textRow(
                     "Free memory when idle",

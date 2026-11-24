@@ -33,7 +33,7 @@ extension SettingsView {
                         monospaced: true,
                         trailing: {
                             AnyView(HStack(spacing: 8) {
-                                ModelSuggestionsMenu(model: $editor.draft.huggingFaceModel)
+                                ModelSuggestionsMenu(model: $editor.draft.huggingFaceModel, build: derived.build)
                                 recentModelsMenu
                             })
                         }

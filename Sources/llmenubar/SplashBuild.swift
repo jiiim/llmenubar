@@ -3,6 +3,33 @@
 
 import Foundation
 
+/// A release number: `1.7.2`.
+struct SplashVersion: Comparable, Equatable, Sendable {
+    var major: Int
+    var minor: Int
+    var patch: Int
+
+    init(_ major: Int, _ minor: Int, _ patch: Int) {
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+    }
+
+    /// The release a version text names: `1.7.2`, or `1.7.1` for a build
+    /// between releases such as `1.7.1-42-g705ad7ac`, which comes after that
+    /// release and may come before the next. Nil for `source checkout`.
+    init?(parsing text: String) {
+        let release = text.prefix { $0 != "-" }
+        let parts = release.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        guard (2...3).contains(parts.count), !parts.contains(nil) else { return nil }
+        self.init(parts[0] ?? 0, parts[1] ?? 0, parts.count == 3 ? (parts[2] ?? 0) : 0)
+    }
+
+    static func < (lhs: SplashVersion, rhs: SplashVersion) -> Bool {
+        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+    }
+}
+
 /// What the selected `splash` executable says about itself: that it is Splash,
 /// which release, and which `serve` options it takes.
 ///
@@ -35,6 +62,17 @@ struct SplashBuild: Equatable, Sendable {
     var displayVersion: String? {
         guard case .splash(let version) = identity else { return nil }
         return version
+    }
+
+    /// The release number, nil for a build that is not Splash, could not be
+    /// inspected or is a source checkout.
+    var version: SplashVersion? { displayVersion.flatMap { SplashVersion(parsing: $0) } }
+
+    /// Whether this is Splash at `minimum` or later. A build whose release is
+    /// not known is not.
+    func isAtLeast(_ minimum: SplashVersion) -> Bool {
+        guard let version else { return false }
+        return version >= minimum
     }
 
     /// Whether `serve` takes `flag`. A build that could not be inspected is
