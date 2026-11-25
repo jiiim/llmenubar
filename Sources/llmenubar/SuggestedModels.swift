@@ -37,13 +37,15 @@ struct SuggestedModel: Equatable, Identifiable, Sendable {
     var menuTitle: String { "\(memoryTierGiB) GB Mac: \(family), \(detail)" }
 
     static let qwen = "Qwen"
-    static let inkling = "Inkling (text only)"
+    static let inkling = "Inkling"
 
     static let flashNext = "Qwen3.8 Flash Next"
     static let dense27B = "Qwen3.8 27B"
     static let inklingMini = "Inkling-2-Mini"
-    /// Splash 1.7.2 added Inkling-2-Mini.
+    /// Splash 1.7.2 added Inkling-2-Mini, text only.
     static let inklingRelease = SplashVersion(1, 7, 2)
+    /// Splash 1.7.3 added its images and suggests it to 24 GB Macs.
+    static let inklingVisionRelease = SplashVersion(1, 7, 3)
 
     // Sizes are the sum of each variant's files on Hugging Face. Each model
     // leaves its tier at least a tenth over its size for the context and
@@ -51,8 +53,8 @@ struct SuggestedModel: Equatable, Identifiable, Sendable {
     // never offered and the 256 GB model is also the best for 512 GB. Each
     // group has one model for each of its tiers; Inkling-2-Mini's largest
     // GGUF, UD-Q8_K_XL, is also the best for every Mac above 48 GB. Splash
-    // suggests Inkling-2-Mini from 36 GB and has not measured it on 24 GB, so
-    // its first tier is 36 GB.
+    // 1.7.3 suggests Inkling-2-Mini's UD-IQ3_XXS to 24 GB Macs, which 1.7.2
+    // had not measured, and UD-Q4_K_M from 36 GB.
     static let all: [SuggestedModel] = [
         .init(group: qwen, family: flashNext, repository: "unsloth/Qwen3.8-Flash-Next-GGUF", variant: "Q8_0", sizeGiB: 185.6, memoryTierGiB: 256),
         .init(group: qwen, family: flashNext, repository: "unsloth/Qwen3.8-Flash-Next-GGUF", variant: "UD-Q6_K_XL", sizeGiB: 157.5, memoryTierGiB: 192),
@@ -64,6 +66,7 @@ struct SuggestedModel: Equatable, Identifiable, Sendable {
         .init(group: qwen, family: dense27B, repository: "unsloth/Qwen3.8-27B-GGUF", variant: "UD-IQ3_XXS", sizeGiB: 10.2, memoryTierGiB: 24),
         .init(group: inkling, family: inklingMini, repository: "unsloth/Inkling-2-Mini-GGUF", variant: "UD-Q8_K_XL", sizeGiB: 21.3, memoryTierGiB: 48, minimumSplash: inklingRelease),
         .init(group: inkling, family: inklingMini, repository: "unsloth/Inkling-2-Mini-GGUF", variant: "UD-Q4_K_M", sizeGiB: 15.47, memoryTierGiB: 36, minimumSplash: inklingRelease),
+        .init(group: inkling, family: inklingMini, repository: "unsloth/Inkling-2-Mini-GGUF", variant: "UD-IQ3_XXS", sizeGiB: 10.86, memoryTierGiB: 24, minimumSplash: inklingVisionRelease),
     ]
 
     /// The suggestions for a Mac with `physicalMemory` bytes and the engine
