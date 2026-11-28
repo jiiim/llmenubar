@@ -151,6 +151,24 @@ final class ServerManagerTests: XCTestCase {
 
     // MARK: - Tests
 
+    func testTheSpeedIsFollowedWhileItIsNotShown() throws {
+        let harness = try Harness(autoRestart: nil, ignoresSigterm: false,
+                                  forceKillGrace: 1, portWaitTimeout: 0.2,
+                                  stabilityWindow: 300)
+        defer { harness.shutDown() }
+        harness.manager.start()
+        waitFor(isRunning, on: harness.manager)
+        XCTAssertFalse(harness.manager.showsPerformanceInMenuBar)
+        let rate = ServerPerformance(phase: .generation, tokensPerSecond: 42)
+
+        harness.processManager.onPerformanceChange?(rate)
+        XCTAssertEqual(harness.manager.performance, rate, "followed before it was ever shown")
+        harness.manager.setShowsPerformanceInMenuBar(true)
+        XCTAssertEqual(harness.manager.performance, rate)
+        harness.manager.setShowsPerformanceInMenuBar(false)
+        XCTAssertEqual(harness.manager.performance, rate, "turning it off forgets nothing")
+    }
+
     func testQuitWaitsForForcedExitAndSuppressesRestart() throws {
         let harness = try Harness(autoRestart: nil, ignoresSigterm: true,
                                   forceKillGrace: 0.3, portWaitTimeout: 0.2,

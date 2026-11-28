@@ -33,7 +33,8 @@ final class ServerPerformanceTests: XCTestCase {
 
         XCTAssertEqual(
             parser.ingest(Data("19:18:02 Cancelled · input 90 · cached 0 · output 4\n".utf8)),
-            [.idle]
+            [],
+            "the last rate stays"
         )
         XCTAssertTrue(parser.sawRequestActivity)
 
@@ -79,12 +80,96 @@ final class ServerPerformanceTests: XCTestCase {
         XCTAssertEqual(parser.weightsEvent, .restored)
     }
 
-    func testAFinishedRequestWithoutARateGoesIdle() {
+    func testAPrefillRateComesWithTheFirstTokenOfItsRequest() {
+        var parser = ServerPerformanceLogParser()
+        _ = parser.ingest(Data("""
+        19:37:10 Started · request 202 · input 3,315 · cached 224 · effort absent · thinking on
+        19:37:10 Started · request 203 · input 1,200 · cached 200 · effort absent · thinking on
+
+        """.utf8))
+        XCTAssertTrue(parser.rates.isEmpty)
+
+        _ = parser.ingest(Data("19:37:13 TTFT of request 202: 3545.02 ms: own prefill 3544, claim wait 0, decode 0, other prefill 0, unit wait 0, rest 1.01742\n".utf8))
+        XCTAssertEqual(parser.rates.prefill ?? 0, 3_091 / 3.544, accuracy: 0.001)
+        XCTAssertNil(parser.rates.generation)
+        XCTAssertTrue(parser.sawRequestActivity)
+
+        // The other request is matched by its number, whenever its line comes.
+        _ = parser.ingest(Data("19:37:14 TTFT of request 203: 9000 ms: own prefill 500, claim wait 0, rest 8500\n".utf8))
+        XCTAssertEqual(parser.rates.prefill, 2_000)
+
+        _ = parser.ingest(Data("19:37:33 Done · request 202 · input 3,315 · cached 224 · output 2,088 · TTFT 3.5s · 104.5 tok/s\n".utf8))
+        XCTAssertEqual(parser.rates, ServerRates(generation: 104.5))
+    }
+
+    func testBothRatesOfOneReadAreKept() {
+        var parser = ServerPerformanceLogParser()
+        _ = parser.ingest(Data("""
+        19:36:25 Started · request 1 · input 259 · cached 59
+        19:36:25 TTFT of request 1: 440 ms: own prefill 400, claim wait 0
+        19:36:52 Done · request 1 · input 259 · cached 59 · output 3 · 114.3 tok/s
+
+        """.utf8))
+        XCTAssertEqual(parser.rates, ServerRates(prefill: 500, generation: 114.3))
+    }
+
+    func testNoPrefillRateWithoutAMatchingStartOrTokensOrTime() {
+        let cases = [
+            // No start line.
+            "19:00:01 TTFT of request 5: 10 ms: own prefill 10, claim wait 0",
+            // Nothing to prefill.
+            "19:00:00 Started · request 5 · input 100 · cached 100\n19:00:01 TTFT of request 5: 10 ms: own prefill 10, claim wait 0",
+            // No time.
+            "19:00:00 Started · request 5 · input 100 · cached 0\n19:00:01 TTFT of request 5: 10 ms: own prefill 0, claim wait 0",
+            // Ended before its line.
+            "19:00:00 Started · request 5 · input 100 · cached 0\n19:00:01 Cancelled · request 5 · input 100\n19:00:02 TTFT of request 5: 10 ms: own prefill 10, claim wait 0",
+            "19:00:00 Started · request 5 · input 100 · cached 0\n19:00:01 Error · request 5 · capacity_exhausted\n19:00:02 TTFT of request 5: 10 ms: own prefill 10, claim wait 0",
+            // Another run's request of the same number.
+            "19:00:00 Started · request 5 · input 100 · cached 0\n19:00:01 Stopping · releasing engine resources\n19:00:02 TTFT of request 5: 10 ms: own prefill 10, claim wait 0",
+            // A line cut short.
+            "19:00:00 Started · request 5 · input 100 · cached 0\n19:00:01 TTFT of request 5",
+        ]
+        for lines in cases {
+            var parser = ServerPerformanceLogParser()
+            _ = parser.ingest(Data((lines + "\n").utf8))
+            XCTAssertNil(parser.rates.prefill, lines)
+        }
+    }
+
+    func testTheMenuNamesTheRatesItHas() {
+        XCTAssertNil(ServerRates().menuDescription)
+        XCTAssertEqual(ServerRates(prefill: 739.4).menuDescription, "Prefill 739 t/s")
+        XCTAssertEqual(ServerRates(generation: 74.24).menuDescription, "Generation 74.2 t/s")
+        XCTAssertEqual(
+            ServerRates(prefill: 1_332, generation: 99.96).menuDescription,
+            "Prefill 1,332 t/s · Generation 100 t/s"
+        )
+    }
+
+    func testARateThatIsNoSpeedIsNeitherShownNorKept() {
+        for rate in [-1, .nan, .infinity, 1e19] as [Double] {
+            XCTAssertNil(ServerRates(prefill: rate, generation: rate).menuDescription, "\(rate)")
+            var kept = ServerRates(prefill: 739, generation: 74)
+            kept.merge(ServerRates(prefill: rate, generation: rate))
+            XCTAssertEqual(kept, ServerRates(prefill: 739, generation: 74), "\(rate)")
+        }
+
+        var parser = ServerPerformanceLogParser()
+        _ = parser.ingest(Data("""
+        19:00:00 Started · request 5 · input 100 · cached 0
+        19:00:01 TTFT of request 5: 10 ms: own prefill 1e-308, claim wait 0
+
+        """.utf8))
+        XCTAssertNil(parser.rates.prefill)
+    }
+
+    func testAFinishedRequestWithoutARateLeavesTheLastOne() {
         var parser = ServerPerformanceLogParser()
         XCTAssertEqual(
             parser.ingest(Data("19:17:40 Done · input 5 · cached 0 · output 0\n".utf8)),
-            [.idle]
+            []
         )
+        XCTAssertTrue(parser.sawRequestActivity)
     }
 
     func testIgnoresUnrelatedAndMisleadingLines() {
@@ -269,51 +354,6 @@ final class ServerPerformanceTests: XCTestCase {
         XCTAssertEqual(policy.displayed, latest)
     }
 
-    func testPolicyHoldsTheFinalRateOfARequestBeforeGoingIdle() {
-        var policy = PerformanceDisplayPolicy()
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        let rate = ServerPerformance(phase: .generation, tokensPerSecond: 30)
-        let final = ServerPerformance(phase: .generation, tokensPerSecond: 31)
-
-        XCTAssertEqual(policy.receive(rate, now: start), [.display(rate)])
-        XCTAssertEqual(
-            policy.receive(final, now: start.addingTimeInterval(0.1)),
-            [.schedulePublish(after: 0.4)]
-        )
-        // The request ends while the last measurement is still queued: flush
-        // it, then start the hold.
-        XCTAssertEqual(
-            policy.receive(.idle, now: start.addingTimeInterval(0.2)),
-            [.cancelPublish, .display(final), .scheduleIdle(after: 6.0)]
-        )
-        // A second finish record does not restart the hold.
-        XCTAssertEqual(policy.receive(.idle, now: start.addingTimeInterval(0.3)), [])
-        XCTAssertEqual(policy.displayed, final)
-
-        XCTAssertEqual(
-            policy.idleTimerFired(now: start.addingTimeInterval(6.2)),
-            [.display(.idle)]
-        )
-        XCTAssertEqual(policy.displayed, .idle)
-    }
-
-    func testPolicyCancelsAPendingHoldWhenTheNextRequestStarts() {
-        var policy = PerformanceDisplayPolicy()
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        let generation = ServerPerformance(phase: .generation, tokensPerSecond: 30)
-        let prefill = ServerPerformance(phase: .prefill, tokensPerSecond: 400)
-
-        XCTAssertEqual(policy.receive(generation, now: start), [.display(generation)])
-        XCTAssertEqual(
-            policy.receive(.idle, now: start.addingTimeInterval(0.1)),
-            [.scheduleIdle(after: 6.0)]
-        )
-        XCTAssertEqual(
-            policy.receive(prefill, now: start.addingTimeInterval(0.2)),
-            [.cancelIdle, .display(prefill)]
-        )
-    }
-
     func testPolicyIgnoresIdleWhenNothingIsDisplayedAndUnusableRates() {
         var policy = PerformanceDisplayPolicy()
         let start = Date(timeIntervalSinceReferenceDate: 0)
@@ -336,33 +376,28 @@ final class ServerPerformanceTests: XCTestCase {
         XCTAssertEqual(policy.displayed, .idle)
     }
 
-    func testPolicyResetDropsEverythingInFlight() {
-        var policy = PerformanceDisplayPolicy()
+    func testPolicyResetAndAStoppingEngineDropEverythingInFlight() {
         let start = Date(timeIntervalSinceReferenceDate: 0)
         let rate = ServerPerformance(phase: .generation, tokensPerSecond: 30)
-
-        XCTAssertEqual(policy.receive(rate, now: start), [.display(rate)])
-        XCTAssertEqual(
-            policy.receive(
-                ServerPerformance(phase: .generation, tokensPerSecond: 31),
-                now: start.addingTimeInterval(0.1)
-            ),
-            [.schedulePublish(after: 0.4)]
-        )
-        XCTAssertEqual(
-            policy.receive(.idle, now: start.addingTimeInterval(0.2)),
-            [
-                .cancelPublish,
-                .display(ServerPerformance(phase: .generation, tokensPerSecond: 31)),
-                .scheduleIdle(after: 6.0),
-            ]
-        )
-
-        XCTAssertEqual(
-            policy.reset(now: start.addingTimeInterval(0.3)),
-            [.cancelIdle, .display(.idle)]
-        )
-        XCTAssertEqual(policy.reset(now: start.addingTimeInterval(0.4)), [])
+        let queued = ServerPerformance(phase: .generation, tokensPerSecond: 31)
+        let drops: [(inout PerformanceDisplayPolicy, Date) -> [PerformanceDisplayPolicy.Effect]] = [
+            { $0.reset(now: $1) },
+            { $0.receive(.idle, now: $1) },
+        ]
+        for drop in drops {
+            var policy = PerformanceDisplayPolicy()
+            XCTAssertEqual(policy.receive(rate, now: start), [.display(rate)])
+            XCTAssertEqual(
+                policy.receive(queued, now: start.addingTimeInterval(0.1)),
+                [.schedulePublish(after: 0.4)]
+            )
+            XCTAssertEqual(
+                drop(&policy, start.addingTimeInterval(0.2)),
+                [.cancelPublish, .display(.idle)]
+            )
+            XCTAssertEqual(policy.publishTimerFired(now: start.addingTimeInterval(0.5)), [])
+            XCTAssertEqual(drop(&policy, start.addingTimeInterval(0.6)), [])
+        }
     }
 
     func testReaderStartsAtEOFAndHandlesTruncation() throws {

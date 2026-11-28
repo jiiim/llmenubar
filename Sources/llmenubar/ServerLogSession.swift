@@ -10,12 +10,12 @@ import os.log
 final class ServerLogSession {
     var onPerformanceChange: ((ServerPerformance) -> Void)?
     var onWeightsChange: ((WeightsEvent) -> Void)?
+    var onRates: ((ServerRates) -> Void)?
     private(set) var lastUsageAt: Date?
 
     /// The child is suspended while the log is copied.
     var isRotating: Bool { logRotationID != nil }
     private weak var process: Process?
-    private static let idleUsageReadInterval: TimeInterval = 1
     private let log = OSLog(subsystem: "com.jiiim.llmenubar", category: "log-session")
     var logFileHandle: FileHandle?
     private var logWriteSource: DispatchSourceFileSystemObject?
@@ -25,8 +25,6 @@ final class ServerLogSession {
     /// rotation mints its own, so a late completion from an earlier one cannot
     /// pass for the current one.
     private var logRotationID: UUID?
-    private var activeLogPath: String?
-    private var performanceMonitoringEnabled = false
     private let performanceReader = ServerPerformanceLogReader()
     private let performanceQueue = DispatchQueue(
         label: "com.jiiim.llmenubar.performance-log",
@@ -87,10 +85,9 @@ final class ServerLogSession {
         lastUsageAt = nil
         let monitorID = UUID()
         logMonitorID = monitorID
-        activeLogPath = path
 
-        // The reader runs for the life of the server: request activity must not
-        // depend on the menu-bar speed display being enabled.
+        // The reader runs for the life of the server: request activity and the
+        // rates must not depend on the menu-bar speed display being enabled.
         performanceQueue.async { [performanceReader] in
             performanceReader.start(path: path)
         }
@@ -134,7 +131,6 @@ final class ServerLogSession {
             cancelLogRotation(for: process)
         }
         logRotationID = nil
-        activeLogPath = nil
         let id = logMonitorID
         performanceQueue.async { [performanceReader, weak self] in
             let batch = performanceReader.readAvailable()
@@ -144,39 +140,14 @@ final class ServerLogSession {
                 if let self = session, self.logMonitorID == id {
                     self.applyPerformanceBatch(batch, monitorID: id)
                     self.logMonitorID = UUID()
-                    if self.performanceMonitoringEnabled { self.onPerformanceChange?(.idle) }
+                    self.onPerformanceChange?(.idle)
                 }
                 completion()
             }
         }
     }
 
-    /// Enable or disable forwarding parsed request records to the display. The
-    /// reader itself runs for the life of the server: request activity must not
-    /// depend on a display preference.
-    func setPerformanceMonitoring(_ enabled: Bool) {
-        guard enabled != performanceMonitoringEnabled else { return }
-        performanceMonitoringEnabled = enabled
-        guard enabled else {
-            onPerformanceChange?(.idle)
-            return
-        }
-        // Skip whatever accumulated while the display was off, so the next
-        // record shown is current rather than a replay of idle history.
-        guard let path = activeLogPath else { return }
-        performanceQueue.async { [performanceReader] in
-            performanceReader.start(path: path)
-        }
-    }
-
     private func readPerformanceUpdates(monitorID: UUID) {
-        // With the display off, activity only needs a coarse timestamp, so the
-        // read and its main hop are coalesced to this interval. The stop-time
-        // drain still captures the final records exactly.
-        if !performanceMonitoringEnabled, let lastUsageAt,
-           Date().timeIntervalSince(lastUsageAt) < Self.idleUsageReadInterval {
-            return
-        }
         performanceQueue.async { [weak self, performanceReader] in
             let batch = performanceReader.readAvailable()
             guard !batch.isEmpty else { return }
@@ -201,7 +172,9 @@ final class ServerLogSession {
         if let weights = batch.weights {
             onWeightsChange?(weights)
         }
-        guard performanceMonitoringEnabled else { return }
+        if !batch.rates.isEmpty {
+            onRates?(batch.rates)
+        }
         for update in batch.updates {
             onPerformanceChange?(update)
         }

@@ -148,7 +148,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// Between the actions and the model, hidden with the model.
     private let modelSeparator = NSMenuItem.separator()
     private let speedItem = NSMenuItem(
-        title: "Show Speed in Menu Bar",
+        title: "Show Generation Speed in Menu Bar",
         action: nil,
         keyEquivalent: ""
     )
@@ -347,6 +347,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
+        server.$lastRates
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if menuIsOpen { updateLastActivityItem() }
+            }
+            .store(in: &cancellables)
+
         server.$showsPerformanceInMenuBar
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -529,6 +537,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             activity: server.lastServerUsageAt,
             now: Date()
         )
+        lastActivityItem.subtitle = server.lastRates.menuDescription
     }
 
     @objc private func openChatPage() {

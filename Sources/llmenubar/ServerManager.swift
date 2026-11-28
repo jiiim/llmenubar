@@ -77,6 +77,8 @@ final class ServerManager: ObservableObject {
     /// request brings them back. Only meaningful while running.
     @Published private(set) var weightsAreReleased = false
     @Published private(set) var showsPerformanceInMenuBar: Bool
+    /// The latest prefill and generation rates of this run.
+    @Published private(set) var lastRates = ServerRates()
     @Published private(set) var keepsAwakeWhileRunning: Bool
     @Published private(set) var confirmQuitWhileServerActive: Bool
     @Published private(set) var autoRestartServer: Bool
@@ -123,11 +125,10 @@ final class ServerManager: ObservableObject {
         autoRestartServer = config.autoRestartServer
         recentSelections = config.recentSelections
         startupProgress.onChange = { [weak self] in self?.startupPhase = $0 }
-        presentation.showsPerformanceInMenuBar = showsPerformanceInMenuBar
         presentation.onPerformance = { [weak self] in self?.performance = $0 }
         presentation.onWeights = { [weak self] in self?.weightsAreReleased = $0 }
+        presentation.onRates = { [weak self] in self?.lastRates = $0 }
         wireCallbacks()
-        processManager.setPerformanceMonitoring(showsPerformanceInMenuBar)
         power.onChange = { [weak self] in self?.keepAwakeState = $0 }
         refreshKeepAwake()
     }
@@ -142,6 +143,7 @@ final class ServerManager: ObservableObject {
         }
         processManager.onPerformanceChange = { [weak self] in self?.presentation.receivePerformance($0) }
         processManager.onWeightsChange = { [weak self] in self?.presentation.receiveWeights($0) }
+        processManager.onRates = { [weak self] in self?.presentation.receiveRates($0) }
 
         // A long startup is legitimate — Splash can spend a long time on
         // model load and Metal residency — so this only informs the user, and
@@ -290,16 +292,11 @@ final class ServerManager: ObservableObject {
     var lastServerUsageAt: Date? { processManager.lastUsageAt }
 
     /// Apply the menu-bar display preference immediately without restarting the
-    /// managed server. ProcessManager starts or stops its incremental log reader.
+    /// managed server. The speed is followed either way; this only shows it.
     func setShowsPerformanceInMenuBar(_ requested: Bool) {
         guard requested != showsPerformanceInMenuBar else { return }
         config.setShowsPerformanceInMenuBar(requested)
         showsPerformanceInMenuBar = requested
-        presentation.showsPerformanceInMenuBar = requested
-        if !requested {
-            presentation.apply(presentation.performancePolicy.reset(now: Date()))
-        }
-        processManager.setPerformanceMonitoring(requested)
     }
 
     /// Apply the keep-awake preference immediately. Like the display preference

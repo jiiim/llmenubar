@@ -7,39 +7,50 @@ import Foundation
 final class ServerPresentation {
     var onPerformance: ((ServerPerformance) -> Void)?
     var onWeights: ((Bool) -> Void)?
+    var onRates: ((ServerRates) -> Void)?
     /// Everything shown belongs to one run. A change of status ends the run
-    /// being shown: the unloaded flag and the speed go, and any display work
-    /// still scheduled is cancelled so it cannot publish into the next one.
+    /// being shown: the unloaded flag, the speed and the rates go, and any
+    /// display work still scheduled is cancelled so it cannot publish into the
+    /// next one.
     var status: ServerStatus = .stopped {
         didSet {
             guard oldValue != status else { return }
             weightsAreReleased = false
+            rates = ServerRates()
             apply(performancePolicy.reset(now: Date()))
         }
     }
-    var showsPerformanceInMenuBar = false
     private var performance: ServerPerformance = .idle { didSet { onPerformance?(performance) } }
     private var weightsAreReleased = false { didSet { onWeights?(weightsAreReleased) } }
+    private var rates = ServerRates() { didSet { onRates?(rates) } }
     var performancePolicy = PerformanceDisplayPolicy()
     private var publishGeneration = 0
-    private var idleGeneration = 0
     private var performancePublishWorkItem: DispatchWorkItem?
-    private var performanceIdleWorkItem: DispatchWorkItem?
     // MARK: - Performance display
 
-    /// PerformanceDisplayPolicy decides *when* the menu bar may change; this
-    /// side owns the clock, the two timers, and the published value.
+    /// PerformanceDisplayPolicy decides *when* the speed may change; this side
+    /// owns the clock, the timer, and the published value. It is followed
+    /// whether or not the menu bar shows it, so that turning the speed on shows
+    /// what it would have shown all along.
     func receivePerformance(_ update: ServerPerformance) {
-        guard showsPerformanceInMenuBar, case .running = status else { return }
+        guard case .running = status else { return }
         apply(performancePolicy.receive(update, now: Date()))
     }
 
-    /// An unloaded model has no current speed: the display goes to `----` at
-    /// once, without the hold a finished request gets.
+    /// The status menu keeps the latest rates until the run ends, through an
+    /// unload too.
+    func receiveRates(_ newer: ServerRates) {
+        guard case .running = status else { return }
+        var merged = rates
+        merged.merge(newer)
+        if rates != merged { rates = merged }
+    }
+
+    /// An unloaded model has no current speed: the display goes to `----`.
     func receiveWeights(_ event: WeightsEvent) {
         guard case .running = status else { return }
         let released = event == .released
-        if released, showsPerformanceInMenuBar {
+        if released {
             apply(performancePolicy.reset(now: Date()))
         }
         if weightsAreReleased != released { weightsAreReleased = released }
@@ -66,24 +77,7 @@ final class ServerPresentation {
                 }
                 performancePublishWorkItem = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-
-            case .cancelIdle:
-                idleGeneration &+= 1
-                performanceIdleWorkItem?.cancel()
-                performanceIdleWorkItem = nil
-
-            case .scheduleIdle(let delay):
-                idleGeneration &+= 1
-                let issued = idleGeneration
-                let work = DispatchWorkItem { [weak self] in
-                    guard let self, self.idleGeneration == issued else { return }
-                    self.performanceIdleWorkItem = nil
-                    self.apply(self.performancePolicy.idleTimerFired(now: Date()))
-                }
-                performanceIdleWorkItem = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
             }
         }
     }
-
 }

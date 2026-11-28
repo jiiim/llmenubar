@@ -70,10 +70,9 @@ final class ProcessManagerTests: XCTestCase {
         await fulfillment(of: [terminated], timeout: 2)
     }
 
-    /// Toggling the menu-bar display must not disturb the running server, and
-    /// enabling it mid-request must start at EOF rather than replaying the
-    /// history already in the log.
-    func testPerformanceMonitoringTogglesAgainstALiveServer() async throws {
+    /// Every record a running server writes is read and reported, with no
+    /// display preference involved.
+    func testEachRecordOfALiveServerIsReported() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("llmenubar-live-performance-\(UUID().uuidString)")
         let fileManager = FileManager.default
@@ -108,36 +107,25 @@ final class ProcessManagerTests: XCTestCase {
         let manager = ProcessManager()
         var updates: [ServerPerformance] = []
         manager.onPerformanceChange = { updates.append($0) }
+        var rates: [ServerRates] = []
+        manager.onRates = { rates.append($0) }
         defer {
             if manager.isProcessRunning {
                 manager.terminate()
             }
         }
 
-        // Step 1 lands while monitoring is off and must never be reported, but
-        // it still counts as activity: tracking is not gated by the display.
         XCTAssertNotNil(manager.launch(configuration: configuration))
-        try await write(step: 1, at: stepURL, awaiting: 1, in: logURL)
-        XCTAssertEqual(updates, [])
-        try await waitForUsage(manager)
-        XCTAssertNotNil(manager.lastUsageAt)
-
-        manager.setPerformanceMonitoring(true)
-        try await write(step: 2, at: stepURL, awaiting: 2, in: logURL)
-        try await settle()
+        for step in 1...3 {
+            try await write(step: step, at: stepURL, awaiting: step, in: logURL)
+            try await settle()
+        }
         XCTAssertEqual(
             updates,
-            [ServerPerformance(phase: .generation, tokensPerSecond: 2.0)]
+            [1.0, 2.0, 3.0].map { ServerPerformance(phase: .generation, tokensPerSecond: $0) }
         )
-
-        // Disabling reports idle once and then stays quiet.
-        manager.setPerformanceMonitoring(false)
-        XCTAssertEqual(updates.last, .idle)
-        let afterDisabling = updates.count
-        try await write(step: 3, at: stepURL, awaiting: 3, in: logURL)
-        try await settle()
-        XCTAssertEqual(updates.count, afterDisabling)
-        XCTAssertNotNil(manager.lastUsageAt, "tracking must survive disabling the display")
+        XCTAssertEqual(rates.map(\.generation), [1.0, 2.0, 3.0])
+        XCTAssertNotNil(manager.lastUsageAt)
         XCTAssertTrue(manager.isProcessRunning)
     }
 
@@ -715,7 +703,7 @@ final class ProcessManagerTests: XCTestCase {
         while events.isEmpty, Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertEqual(events, [.released], "reported with the speed display off")
+        XCTAssertEqual(events, [.released], "reported with no display preference")
         XCTAssertNil(manager.lastUsageAt, "giving the weights back is not a request")
     }
 

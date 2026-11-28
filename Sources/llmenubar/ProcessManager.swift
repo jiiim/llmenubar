@@ -46,11 +46,16 @@ final class ProcessManager {
     }
 
     /// Called when Splash's log says it gave the weights back after an idle
-    /// spell, or took them again for a request. Reported whether or not the
-    /// speed is shown.
+    /// spell, or took them again for a request.
     var onWeightsChange: ((WeightsEvent) -> Void)? {
         get { logSession.onWeightsChange }
         set { logSession.onWeightsChange = newValue }
+    }
+
+    /// Called with the prefill and generation rates Splash's log gives.
+    var onRates: ((ServerRates) -> Void)? {
+        get { logSession.onRates }
+        set { logSession.onRates = newValue }
     }
 
     // MARK: - Private state
@@ -363,7 +368,6 @@ final class ProcessManager {
 
     // MARK: - Logging
 
-    func setPerformanceMonitoring(_ enabled: Bool) { logSession.setPerformanceMonitoring(enabled) }
     func applyPerformanceBatch(_ batch: ServerLogBatch, monitorID: UUID) { logSession.applyPerformanceBatch(batch, monitorID: monitorID) }
     func clearLogCollection(logPath: String) throws { try logSession.clearLogCollection(logPath: logPath) }
     func lastLogReason(logPath: String) -> String { logSession.lastLogReason(logPath: logPath) }

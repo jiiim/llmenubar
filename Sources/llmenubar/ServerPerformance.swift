@@ -7,9 +7,10 @@ import Foundation
 /// Splash. The menu-bar rendering is deliberately eight monospaced
 /// characters wide so rate changes never resize the status item.
 ///
-/// The phase is not drawn. Splash reports only a generation rate, so a letter
-/// naming the phase would never vary; an engine that reports prefill as well
-/// would bring the letter back.
+/// The phase is not drawn. The menu bar shows only Splash's generation rate,
+/// which arrives as a request ends, so a letter naming the phase would never
+/// vary; an engine that reports both as they happen would bring the letter
+/// back.
 struct ServerPerformance: Equatable {
     enum Phase: String {
         case idle = "-"
@@ -71,61 +72,53 @@ struct ServerPerformance: Equatable {
 }
 
 /// When the menu bar is allowed to change, expressed without timers or a clock
-/// so the transitions can be exercised directly. ServerManager owns the two
-/// timers and performs whatever effects a decision returns.
+/// so the transitions can be exercised directly. ServerPresentation owns the
+/// timer and performs whatever effects a decision returns.
 ///
-/// A request's rate is on screen only while the display is held, so: publish a
-/// phase change at once, coalesce same-phase rate changes to
-/// `publishInterval`, and when a request ends hold its final rate for
-/// `holdInterval` instead of blanking the display immediately. A value that
-/// renders to the same characters as the one already shown is not published at
-/// all. Requests that overlap, or follow one another within the hold, are what
-/// make the coalescing matter.
+/// A phase change is published at once and same-phase rate changes are
+/// coalesced to `publishInterval`. A rate stays until the next one, or until
+/// the engine stops or gives the weights back. A value that renders to the same
+/// characters as the one already shown is not published at all. Requests that
+/// overlap, or follow one another closely, are what make the coalescing
+/// matter.
 struct PerformanceDisplayPolicy {
     static let publishInterval: TimeInterval = 0.5
-    static let holdInterval: TimeInterval = 6.0
 
     enum Effect: Equatable {
         case display(ServerPerformance)
         case schedulePublish(after: TimeInterval)
         case cancelPublish
-        case scheduleIdle(after: TimeInterval)
-        case cancelIdle
     }
 
     private(set) var displayed: ServerPerformance = .idle
     private var pending: ServerPerformance?
     private var lastPublish = Date.distantPast
     private var publishScheduled = false
-    private var idleScheduled = false
 
     /// A record parsed out of the server log.
     mutating func receive(_ update: ServerPerformance, now: Date) -> [Effect] {
         if update == .idle {
-            return holdBeforeIdle(now: now)
+            return reset(now: now)
         }
         guard update.hasDisplayableRate else { return [] }
 
-        var effects = cancelIdle()
         guard update.phase == displayed.phase else {
             // A phase change is the informative event; show it without waiting
             // out a coalescing window opened by the previous phase.
-            return effects + cancelPublish() + publish(update, now: now)
+            return cancelPublish() + publish(update, now: now)
         }
 
         let remaining = Self.publishInterval - now.timeIntervalSince(lastPublish)
         guard remaining > 0 else {
             // Publishing now supersedes anything still queued behind a timer
             // that has come due but not yet run.
-            return effects + cancelPublish() + publish(update, now: now)
+            return cancelPublish() + publish(update, now: now)
         }
 
         pending = update
-        if !publishScheduled {
-            publishScheduled = true
-            effects.append(.schedulePublish(after: remaining))
-        }
-        return effects
+        guard !publishScheduled else { return [] }
+        publishScheduled = true
+        return [.schedulePublish(after: remaining)]
     }
 
     mutating func publishTimerFired(now: Date) -> [Effect] {
@@ -135,35 +128,15 @@ struct PerformanceDisplayPolicy {
         return publish(update, now: now)
     }
 
-    mutating func idleTimerFired(now: Date) -> [Effect] {
-        idleScheduled = false
-        return publish(.idle, now: now)
-    }
-
-    /// The user turned the display off. Drop everything in flight.
+    /// The engine stopped or the weights were released. Drop everything in
+    /// flight.
     mutating func reset(now: Date) -> [Effect] {
-        let effects = cancelPublish() + cancelIdle()
+        let effects = cancelPublish()
         guard displayed != .idle else { return effects }
         return effects + publish(.idle, now: now)
     }
 
     // MARK: - Private
-
-    private mutating func holdBeforeIdle(now: Date) -> [Effect] {
-        var effects: [Effect] = []
-        if let queued = pending {
-            // The request's final rate is the one worth showing; do not let a
-            // coalescing window swallow it.
-            effects += cancelPublish() + publish(queued, now: now)
-        }
-        // `displayed` only ever holds .idle or a value that passed
-        // hasDisplayableRate, so this is the already-idle case: nothing to
-        // hold, and nothing to blank.
-        guard displayed.hasDisplayableRate else { return effects }
-        guard !idleScheduled else { return effects }
-        idleScheduled = true
-        return effects + [.scheduleIdle(after: Self.holdInterval)]
-    }
 
     private mutating func publish(
         _ update: ServerPerformance,
@@ -185,11 +158,43 @@ struct PerformanceDisplayPolicy {
         publishScheduled = false
         return [.cancelPublish]
     }
+}
 
-    private mutating func cancelIdle() -> [Effect] {
-        guard idleScheduled else { return [] }
-        idleScheduled = false
-        return [.cancelIdle]
+/// The latest prefill and generation rates of a run, for the status menu. The
+/// two may come from different requests.
+struct ServerRates: Equatable {
+    var prefill: Double?
+    var generation: Double?
+
+    var isEmpty: Bool { prefill == nil && generation == nil }
+
+    /// Takes the usable rates `newer` has and keeps the rest.
+    mutating func merge(_ newer: ServerRates) {
+        prefill = Self.usable(newer.prefill) ?? prefill
+        generation = Self.usable(newer.generation) ?? generation
+    }
+
+    /// `rate`, unless it is no speed to show: negative, not a number, or past
+    /// any an engine could reach, as a time close to zero would give.
+    private static func usable(_ rate: Double?) -> Double? {
+        rate.flatMap { $0 >= 0 && $0 < 1e9 ? $0 : nil }
+    }
+
+    /// `Prefill 739 t/s · Generation 74.2 t/s`, without a rate not yet known.
+    var menuDescription: String? {
+        let parts = [("Prefill", prefill), ("Generation", generation)].compactMap { name, rate in
+            Self.usable(rate).map { "\(name) \(Self.describe($0)) t/s" }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// One decimal below 100, and whole numbers with commas from there, in
+    /// every locale.
+    private static func describe(_ rate: Double) -> String {
+        guard rate >= 99.95 else {
+            return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), rate)
+        }
+        return NativeContextWindow.grouped(Int(rate.rounded()))
     }
 }
 
@@ -197,13 +202,16 @@ struct PerformanceDisplayPolicy {
 /// console. It retains a partial final line because a filesystem write event is
 /// not a promise that the newest line was written in one operation.
 ///
-/// Splash prints a line when a request starts and another when it ends:
+/// Splash prints a line when a request starts, another at its first token and
+/// a third when it ends:
 ///
-///     19:17:29 Started · input 131 · cached 0 · effort absent · thinking on
-///     19:17:40 Done · input 131 · cached 0 · output 759 · TTFT 1.0s · 74.2 tok/s
+///     19:17:29 Started · request 7 · input 3,315 · cached 224 · effort absent · thinking on
+///     19:17:33 TTFT of request 7: 3545.02 ms: own prefill 3544, claim wait 0, ...
+///     19:17:40 Done · request 7 · input 3,315 · cached 224 · output 759 · TTFT 3.5s · 74.2 tok/s
 ///
-/// The rate on the end line is the request's generation speed. Splash reports
-/// no prefill speed in its log, so the display shows generation only.
+/// The rate on the end line is the request's generation speed. Splash prints no
+/// prefill speed: it is the input the cache did not hold, over the time the
+/// request's own prefill took.
 struct ServerPerformanceLogParser {
     private var buffered = Data()
 
@@ -215,10 +223,18 @@ struct ServerPerformanceLogParser {
     /// `ingest`, if there was one.
     private(set) var weightsEvent: WeightsEvent?
 
+    /// The last prefill and generation rates in the bytes of the last `ingest`.
+    private(set) var rates = ServerRates()
+
+    /// The tokens each started request has to prefill, by request number, until
+    /// its first token or its end.
+    private var uncachedTokens: [Int: Int] = [:]
+
     mutating func ingest(_ data: Data) -> [ServerPerformance] {
         buffered.append(data)
         sawRequestActivity = false
         weightsEvent = nil
+        rates = ServerRates()
         var updates: [ServerPerformance] = []
 
         while let newline = buffered.firstIndex(of: 0x0a) {
@@ -228,7 +244,18 @@ struct ServerPerformanceLogParser {
             guard let record = Self.record(in: line) else { continue }
             if record.isRequestWork { sawRequestActivity = true }
             if let event = record.weights { weightsEvent = event }
-            if let update = record.update { updates.append(update) }
+            if let update = record.update {
+                updates.append(update)
+                rates.merge(ServerRates(generation: update.tokensPerSecond))
+            }
+            if let start = record.started { uncachedTokens[start.request] = start.uncachedTokens }
+            if let first = record.firstToken,
+               let tokens = uncachedTokens.removeValue(forKey: first.request),
+               tokens > 0, first.prefillMilliseconds > 0 {
+                rates.merge(ServerRates(prefill: Double(tokens) * 1_000 / first.prefillMilliseconds))
+            }
+            if let ended = record.endedRequest { uncachedTokens[ended] = nil }
+            if record.stopsServer { uncachedTokens.removeAll() }
         }
         return updates
     }
@@ -237,12 +264,18 @@ struct ServerPerformanceLogParser {
         buffered.removeAll(keepingCapacity: true)
         sawRequestActivity = false
         weightsEvent = nil
+        rates = ServerRates()
+        uncachedTokens.removeAll()
     }
 
     private struct Record {
         let isRequestWork: Bool
         let update: ServerPerformance?
         var weights: WeightsEvent?
+        var started: (request: Int, uncachedTokens: Int)?
+        var firstToken: (request: Int, prefillMilliseconds: Double)?
+        var endedRequest: Int?
+        var stopsServer = false
 
         init(isRequestWork: Bool, update: ServerPerformance?, weights: WeightsEvent? = nil) {
             self.isRequestWork = isRequestWork
@@ -268,18 +301,41 @@ struct ServerPerformanceLogParser {
         if message.hasPrefix("Weights restored") {
             return Record(isRequestWork: false, update: nil, weights: .restored)
         }
+        if message.hasPrefix("TTFT of request ") {
+            var record = Record(isRequestWork: true, update: nil)
+            record.firstToken = firstToken(in: message)
+            return record
+        }
         let fields = message.components(separatedBy: " · ")
+        let request = count("request ", in: fields)
         switch fields.first {
         case "Started":
-            return Record(isRequestWork: true, update: nil)
+            var record = Record(isRequestWork: true, update: nil)
+            if let request,
+               let input = count("input ", in: fields),
+               let cached = count("cached ", in: fields) {
+                record.started = (request, input - cached)
+            }
+            return record
         case "Done":
             let rate = fields.lazy.compactMap(generationRate).first
             let update = rate.map { ServerPerformance(phase: .generation, tokensPerSecond: $0) }
-            return Record(isRequestWork: true, update: update ?? .idle)
+            var record = Record(isRequestWork: true, update: update)
+            record.endedRequest = request
+            return record
         case "Cancelled":
-            return Record(isRequestWork: true, update: .idle)
+            var record = Record(isRequestWork: true, update: nil)
+            record.endedRequest = request
+            return record
+        case "Error":
+            guard let request else { return nil }
+            var record = Record(isRequestWork: false, update: nil)
+            record.endedRequest = request
+            return record
         case "Stopping":
-            return Record(isRequestWork: false, update: .idle)
+            var record = Record(isRequestWork: false, update: .idle)
+            record.stopsServer = true
+            return record
         default:
             return nil
         }
@@ -293,6 +349,25 @@ struct ServerPerformanceLogParser {
               [0, 1, 3, 4, 6, 7].allSatisfy({ characters[$0].isASCII && characters[$0].isNumber })
         else { return nil }
         return line.dropFirst(9)
+    }
+
+    /// The whole number of the field that starts with `label`, as in
+    /// `input 3,315`.
+    private static func count(_ label: String, in fields: [String]) -> Int? {
+        fields.first { $0.hasPrefix(label) }
+            .flatMap { Int($0.dropFirst(label.count).replacingOccurrences(of: ",", with: "")) }
+    }
+
+    /// `TTFT of request 7: 3545.02 ms: own prefill 3544, claim wait 0, ...`
+    private static func firstToken(in message: Substring) -> (request: Int, prefillMilliseconds: Double)? {
+        let tail = message.dropFirst("TTFT of request ".count)
+        guard let colon = tail.firstIndex(of: ":"),
+              let request = Int(tail[..<colon]),
+              let label = tail.range(of: "own prefill "),
+              let milliseconds = Double(tail[label.upperBound...].prefix { $0 != "," }),
+              milliseconds.isFinite
+        else { return nil }
+        return (request, milliseconds)
     }
 
     private static func generationRate(_ field: String) -> Double? {
@@ -318,8 +393,9 @@ struct ServerLogBatch: Equatable {
     var updates: [ServerPerformance] = []
     var sawRequestActivity = false
     var weights: WeightsEvent?
+    var rates = ServerRates()
 
-    var isEmpty: Bool { updates.isEmpty && !sawRequestActivity && weights == nil }
+    var isEmpty: Bool { updates.isEmpty && !sawRequestActivity && weights == nil && rates.isEmpty }
 }
 
 /// Reads only bytes appended after monitoring starts. Rotation and log clearing
@@ -360,7 +436,8 @@ final class ServerPerformanceLogReader: @unchecked Sendable {
             return ServerLogBatch(
                 updates: updates,
                 sawRequestActivity: parser.sawRequestActivity,
-                weights: parser.weightsEvent
+                weights: parser.weightsEvent,
+                rates: parser.rates
             )
         } catch {
             return ServerLogBatch()

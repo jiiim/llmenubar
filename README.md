@@ -13,7 +13,7 @@
 LLMenuBar is a lightweight, native macOS menu bar app that starts, stops, and configures a local inference engine that you install separately. It currently supports the [Splash](https://github.com/incoai/splash) inference engine.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jiiim/llmenubar-arr/main/images/menu-bar-menu-00A.png" width="438" alt="LLMenuBar menu">
+  <img src="https://raw.githubusercontent.com/jiiim/llmenubar-arr/main/images/menu-bar-menu-00B.png" width="436" alt="LLMenuBar menu">
 </p>
 
 ## Why LLMenuBar
@@ -27,7 +27,7 @@ Splash has its own desktop app. LLMenuBar is a menu bar app that runs `splash se
   - **No baked-in log viewer:** One click opens the log in macOS's Console.app.
 - **Out of the way.** LLMenuBar has no Dock icon and does not appear in the Command-Tab switcher unless one of its windows is open.
 - **A real Mac menu.** LLMenuBar's menu works as Mac menus have worked since 1984: click the menu bar icon, drag to an item, and release. One click opens the chat page in your browser, and the menu provides many other features.
-- **Speed at a glance.** LLMenuBar can keep the generation speed visible at a glance — with zero clicks — while you remain focused in your agent, editor, or application of choice.
+- **Speed at a glance.** LLMenuBar can keep the generation speed visible at a glance — with zero clicks — while you remain focused in your agent, editor, or application of choice. The menu also gives the latest prefill and generation speeds.
 - **Every Splash option.** All `splash serve` options are available — including draft model, vision projector, local model name, revision, and offline mode. The General pane shows the exact command it runs.
 - **Your own Splash.** Use Homebrew's `splash`, a source checkout, or Splash.app's runtime. The desktop app does not need to be installed.
 - **Logs and environment.** Configure the log folder and log size, enable crash traces, or add extra environment variables for the engine.
@@ -41,7 +41,7 @@ Splash has its own desktop app. LLMenuBar is a menu bar app that runs `splash se
 - macOS 26 or later on an Apple silicon Mac.
 - Splash, installed or built separately: the Splash desktop app, the `splash` command installed with `brew install incoai/tap/splash`, or the `splash` executable from a source checkout. See the [Splash project](https://github.com/incoai/splash) for its requirements.
 
-LLMenuBar 0.0.6 is known to work with Splash 1.6.1, 1.7.0, 1.7.1, 1.7.2 and 1.7.3 and may work with newer releases.
+LLMenuBar 0.0.7 is known to work with Splash 1.6.1, 1.7.0, 1.7.1, 1.7.2 and 1.7.3 and may work with newer releases.
 
 ## Install
 

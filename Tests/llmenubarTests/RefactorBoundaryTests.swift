@@ -39,7 +39,7 @@ final class RefactorBoundaryTests: XCTestCase {
         XCTAssertEqual(shown, .starting)
     }
 
-    func testWeightsDoNotSurviveRunReplacementWhenSpeedIsOff() {
+    func testWeightsDoNotSurviveRunReplacement() {
         let presentation = ServerPresentation()
         var released = false
         presentation.onWeights = { released = $0 }
@@ -58,7 +58,6 @@ final class RefactorBoundaryTests: XCTestCase {
     /// and a restart's new run does not start with the old one's number.
     func testTheSpeedDoesNotOutliveItsRun() {
         let presentation = ServerPresentation()
-        presentation.showsPerformanceInMenuBar = true
         var shown = ServerPerformance.idle
         presentation.onPerformance = { shown = $0 }
         let rate = ServerPerformance(phase: .generation, tokensPerSecond: 42)
@@ -82,10 +81,34 @@ final class RefactorBoundaryTests: XCTestCase {
         XCTAssertEqual(shown, .idle)
     }
 
-    /// A publish or idle timer scheduled by the old run fires into the new one.
+    func testTheRatesAreKeptThroughAnUnloadAndGoWithTheRun() {
+        let presentation = ServerPresentation()
+        var shown = ServerRates()
+        var speed = ServerPerformance.idle
+        presentation.onRates = { shown = $0 }
+        presentation.onPerformance = { speed = $0 }
+
+        presentation.status = .running(pid: 1)
+        presentation.receiveRates(ServerRates(prefill: 739))
+        presentation.receiveRates(ServerRates(generation: 42))
+        presentation.receivePerformance(ServerPerformance(phase: .generation, tokensPerSecond: 42))
+        XCTAssertEqual(shown, ServerRates(prefill: 739, generation: 42))
+
+        presentation.receiveWeights(.released)
+        XCTAssertEqual(speed, .idle, "the menu bar's speed goes with the weights")
+        XCTAssertEqual(shown, ServerRates(prefill: 739, generation: 42), "the menu's rates stay")
+
+        presentation.status = .stopping
+        XCTAssertTrue(shown.isEmpty)
+        presentation.receiveRates(ServerRates(prefill: 1))
+        XCTAssertTrue(shown.isEmpty, "rates arriving after the run ended are dropped")
+        presentation.status = .running(pid: 2)
+        XCTAssertTrue(shown.isEmpty, "the next run starts with none")
+    }
+
+    /// A publish timer scheduled by the old run must not fire into the new one.
     func testScheduledDisplayWorkDoesNotPublishAfterTheRunEnds() {
         let presentation = ServerPresentation()
-        presentation.showsPerformanceInMenuBar = true
         var shown: [ServerPerformance] = []
         presentation.onPerformance = { shown.append($0) }
         presentation.status = .running(pid: 1)
