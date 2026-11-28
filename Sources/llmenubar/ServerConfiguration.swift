@@ -86,7 +86,14 @@ final class ServerConfiguration {
     }
 
     enum Activations: String, Codable, CaseIterable, Equatable {
-        case standard, bf16
+        case standard, auto, bf16
+        var argument: String? { self == .standard ? nil : rawValue }
+    }
+
+    /// How 16-bit weights load: Splash's `--weights`, whose own default is
+    /// `original`.
+    enum Weights: String, Codable, CaseIterable, Equatable {
+        case standard, auto
         var argument: String? { self == .standard ? nil : rawValue }
     }
 
@@ -136,6 +143,9 @@ final class ServerConfiguration {
         /// A DFlash2 draft: a folder for local files, a repository otherwise.
         var draftModel = ""
         var revision = ""
+        /// The draft repository's branch, tag or commit, for a Hugging Face
+        /// model.
+        var draftRevision = ""
         var languageOnly = false
         var offline = false
         /// Where Hugging Face models download to (`HF_HUB_CACHE`). Blank uses
@@ -163,6 +173,7 @@ final class ServerConfiguration {
         var pleMemory = ""
         var expertMemory = ""
         var sparseKVMemory = ""
+        var weights: Weights = .standard
         var kvFormat: KVFormat = .standard
         var stateFormat: StateFormat = .standard
         var cachedStates: CachedStates = .standard
@@ -191,6 +202,8 @@ final class ServerConfiguration {
         var maxRequestSize = ""
         var maxImagePixels = ""
         var requestTimeout = ""
+        /// How long running requests get to finish when the engine stops.
+        var shutdownTimeout = ""
         var queueSize = ""
         var maxConcurrentRequests = ""
         var decodeShare = ""
@@ -624,6 +637,7 @@ extension ServerConfiguration.Config {
         let draft = trimmed(draftModel)
         config.draftModel = draft.hasPrefix("/") || draft.hasPrefix("~") ? path(draft) : draft
         config.revision = trimmed(revision)
+        config.draftRevision = trimmed(draftRevision)
         config.host = trimmed(host)
         config.allowedHosts = trimmed(allowedHosts)
         config.allowedOrigins = trimmed(allowedOrigins)
@@ -633,8 +647,8 @@ extension ServerConfiguration.Config {
         config.expertMemory = trimmed(expertMemory)
         config.sparseKVMemory = trimmed(sparseKVMemory)
         config.idleRelease = trimmed(idleRelease)
-        config.maxCacheDisk = trimmed(maxCacheDisk)
-        config.maxCacheDiskWrites = trimmed(maxCacheDiskWrites)
+        config.maxCacheDisk = SplashOptionValues.plainWholeNumber(trimmed(maxCacheDisk))
+        config.maxCacheDiskWrites = SplashOptionValues.plainWholeNumber(trimmed(maxCacheDiskWrites))
         config.cacheDirectory = path(cacheDirectory)
         config.chatTemplatePath = path(chatTemplatePath)
         config.modelCacheDirectory = path(modelCacheDirectory)
@@ -644,6 +658,7 @@ extension ServerConfiguration.Config {
         config.maxRequestSize = trimmed(maxRequestSize)
         config.maxImagePixels = trimmed(maxImagePixels)
         config.requestTimeout = trimmed(requestTimeout)
+        config.shutdownTimeout = SplashOptionValues.plainWholeNumber(trimmed(shutdownTimeout))
         config.queueSize = trimmed(queueSize)
         config.maxConcurrentRequests = trimmed(maxConcurrentRequests)
         config.samplingTemperature = trimmed(samplingTemperature)
@@ -694,6 +709,7 @@ extension ServerConfiguration.Config {
         visionProjectorPath = c.value(.visionProjectorPath, d.visionProjectorPath)
         draftModel = c.value(.draftModel, d.draftModel)
         revision = c.value(.revision, d.revision)
+        draftRevision = c.value(.draftRevision, d.draftRevision)
         languageOnly = c.value(.languageOnly, d.languageOnly)
         offline = c.value(.offline, d.offline)
         modelCacheDirectory = c.value(.modelCacheDirectory, d.modelCacheDirectory)
@@ -709,6 +725,7 @@ extension ServerConfiguration.Config {
         pleMemory = c.value(.pleMemory, d.pleMemory)
         expertMemory = c.value(.expertMemory, d.expertMemory)
         sparseKVMemory = c.value(.sparseKVMemory, d.sparseKVMemory)
+        weights = c.value(.weights, d.weights)
         kvFormat = c.value(.kvFormat, d.kvFormat)
         stateFormat = c.value(.stateFormat, d.stateFormat)
         cachedStates = c.value(.cachedStates, d.cachedStates)
@@ -730,6 +747,7 @@ extension ServerConfiguration.Config {
         maxRequestSize = c.value(.maxRequestSize, d.maxRequestSize)
         maxImagePixels = c.value(.maxImagePixels, d.maxImagePixels)
         requestTimeout = c.value(.requestTimeout, d.requestTimeout)
+        shutdownTimeout = c.value(.shutdownTimeout, d.shutdownTimeout)
         queueSize = c.value(.queueSize, d.queueSize)
         maxConcurrentRequests = c.value(.maxConcurrentRequests, d.maxConcurrentRequests)
         samplingTemperature = c.value(.samplingTemperature, d.samplingTemperature)

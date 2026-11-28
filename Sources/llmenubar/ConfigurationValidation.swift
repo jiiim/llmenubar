@@ -94,13 +94,13 @@ extension ServerConfiguration.Config {
     /// otherwise just silently hide the error.
     enum Field: String, CaseIterable, Hashable {
         case splashPath
-        case huggingFaceModel, modelPath, localModelName, visionProjectorPath, draftModel, revision
+        case huggingFaceModel, modelPath, localModelName, visionProjectorPath, draftModel, revision, draftRevision
         case modelCacheDirectory, chatTemplatePath
         case host, port, allowedHosts, allowedOrigins, apiKey, huggingFaceToken
-        case maxMemory, maxContext, pleMemory, expertMemory, sparseKVMemory, idleRelease, activations, cachedStates, recalibrateANE
+        case maxMemory, maxContext, pleMemory, expertMemory, sparseKVMemory, idleRelease, weights, activations, cachedStates, recalibrateANE
         case maxCacheDisk, maxCacheDiskWrites, cacheDirectory
         case servedModelNames, reasoningEffort, thinkingTokenBudget, thinkingEndText
-        case maxRequestSize, maxImagePixels, requestTimeout, queueSize, maxConcurrentRequests, decodeShare
+        case maxRequestSize, maxImagePixels, requestTimeout, shutdownTimeout, queueSize, maxConcurrentRequests, decodeShare
         case samplingTemperature, samplingTopP, samplingTopK, samplingMinP
         case samplingPresencePenalty, samplingFrequencyPenalty, samplingRepetitionPenalty
         case logPath, logMaxSizeMB, environment
@@ -164,11 +164,12 @@ extension ServerConfiguration.Config {
                 }
             }
         }
-        if !revision.isEmpty {
-            if modelSource == .local {
-                fail(.revision, "A revision applies to a Hugging Face model.")
-            } else if revision.contains(where: \.isWhitespace) || revision.hasPrefix("-") {
-                fail(.revision, "Enter a branch, tag or commit.")
+        // A revision belongs to a Hugging Face model. Local files show no row
+        // for one and send none, so a saved one is left alone.
+        if modelSource == .huggingFace {
+            for (value, field) in [(revision, Field.revision), (draftRevision, Field.draftRevision)]
+            where value.contains(where: \.isWhitespace) || value.hasPrefix("-") {
+                fail(field, "Enter a branch, tag or commit.")
             }
         }
 
@@ -244,10 +245,10 @@ extension ServerConfiguration.Config {
 
         // SSD cache.
         check(maxCacheDisk, .maxCacheDisk, "Use auto, 0 to turn it off, or a size such as 16G.", &errors) {
-            SplashOptionValues.isAuto($0) || $0 == "0" || SplashOptionValues.byteCount($0) != nil
+            SplashOptionValues.isAuto($0) || SplashOptionValues.plainWholeNumber($0) == "0" || SplashOptionValues.byteCount($0) != nil
         }
         check(maxCacheDiskWrites, .maxCacheDiskWrites, "Use 0 for no limit, or a size such as 200G.", &errors) {
-            $0 == "0" || SplashOptionValues.byteCount($0) != nil
+            SplashOptionValues.plainWholeNumber($0) == "0" || SplashOptionValues.byteCount($0) != nil
         }
         if persistentCache, !cacheDirectory.isEmpty, !PathText.isAbsolute(cacheDirectory) {
             fail(.cacheDirectory, "Choose the folder with the Choose button.")
@@ -298,6 +299,9 @@ extension ServerConfiguration.Config {
         }
         check(requestTimeout, .requestTimeout, "Use a duration such as 30m, 2h or 3600.", &errors) {
             SplashOptionValues.seconds($0) != nil
+        }
+        check(shutdownTimeout, .shutdownTimeout, "Use a whole number from 0 to 15.", &errors) {
+            SplashOptionValues.isShutdownTimeout($0)
         }
         check(queueSize, .queueSize, "Use a whole number greater than 0.", &errors) {
             (SplashOptionValues.pythonInteger($0) ?? 0) > 0
@@ -377,6 +381,7 @@ extension ServerConfiguration.Config {
         add(.thinkingEndText, "--thinking-end-text", when: !thinkingEndText.isEmpty)
         add(.maxImagePixels, "--max-image-pixels", when: !maxImagePixels.isEmpty)
         add(.requestTimeout, "--request-timeout", when: !requestTimeout.isEmpty)
+        add(.shutdownTimeout, "--shutdown-timeout", when: !shutdownTimeout.isEmpty)
         add(.queueSize, "--queue-size", when: !queueSize.isEmpty)
         add(.maxConcurrentRequests, "--max-concurrent-requests", when: !maxConcurrentRequests.isEmpty)
         add(.decodeShare, "--decode-share", when: !decodeShare.isEmpty)
@@ -384,6 +389,8 @@ extension ServerConfiguration.Config {
             add(parameter.field, "--sampling-default", when: !self[keyPath: parameter.keyPath].isEmpty)
         }
         add(.recalibrateANE, "--recalibrate-ane", when: recalibrateANE)
+        add(.draftRevision, "--draft-revision", when: modelSource == .huggingFace && !draftRevision.isEmpty)
+        add(.weights, "--weights", when: weights != .standard)
         add(.activations, "--activations", when: activations != .standard)
         add(.cachedStates, "--cached-states", when: cachedStates != .standard)
         return options

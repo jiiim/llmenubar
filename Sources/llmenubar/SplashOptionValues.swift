@@ -81,6 +81,19 @@ enum SplashOptionValues {
         return result.isFinite && result > 0 ? result : nil
     }
 
+    /// The stop grace the app offers for `--shutdown-timeout`: whole seconds up
+    /// to 15, the most Splash takes.
+    static func isShutdownTimeout(_ text: String) -> Bool {
+        wholeNumber(text).map { $0 <= 15 } ?? false
+    }
+
+    /// A whole number in its one spelling, for the options where Splash takes
+    /// `0` but refuses `00`: the stop grace and the SSD cache's two sizes.
+    /// Other text is returned as it is.
+    static func plainWholeNumber(_ text: String) -> String {
+        wholeNumber(text).map(String.init) ?? text
+    }
+
     // MARK: Tokens
 
     static let maximumContextTokens = 1_010_000

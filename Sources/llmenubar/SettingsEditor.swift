@@ -74,11 +74,21 @@ final class SettingsEditor: ObservableObject {
         derivedRefreshRevision &+= 1
     }
 
+    /// What Apply would save of `config`: its typed numbers read, in the one
+    /// stored form.
+    func candidate(from config: ServerConfiguration.Config) -> ServerConfiguration.Config {
+        config.readingTypedNumbers(since: baseline).normalized()
+    }
+
+    /// Whether the draft's cache size, as Apply would save it, turns the SSD
+    /// cache off.
+    var draftTurnsCacheOff: Bool { candidate(from: draft).maxCacheDisk == "0" }
+
     func settingsValidationErrors(
         for config: ServerConfiguration.Config,
         derived override: SplashDerivedState? = nil
     ) -> [ServerConfiguration.Config.Field: String] {
-        var errors = config.normalized().validationErrors(derived: override ?? derived)
+        var errors = candidate(from: config).validationErrors(derived: override ?? derived)
         if let error = fileNameError() {
             errors[.logPath] = error
         }
@@ -177,7 +187,7 @@ final class SettingsEditor: ObservableObject {
 
     func applySettings() {
         guard !isApplyingSettings else { return }
-        let candidate = draft.normalized()
+        let candidate = self.candidate(from: draft)
         let previous = baseline
         let validationID = UUID()
         applyValidationID = validationID
@@ -187,7 +197,7 @@ final class SettingsEditor: ObservableObject {
         Task { [self] in
             let checked = await inspect(candidate)
 
-            guard applyValidationID == validationID, draft.normalized() == candidate else {
+            guard applyValidationID == validationID, self.candidate(from: draft) == candidate else {
                 // Picking a path or editing a file name already cancelled this
                 // pass. Anything else means another control moved while the
                 // checks ran, and the click needs to say so rather than look
@@ -292,6 +302,7 @@ final class SettingsEditor: ObservableObject {
         else { return }
         draft.visionProjectorPath = restoration.visionProjector
         draft.draftModel = restoration.draft
+        draft.draftRevision = restoration.draftRevision
         requestDerivedRefresh()
         showNotice(restoration.message)
     }

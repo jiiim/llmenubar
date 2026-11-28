@@ -41,7 +41,7 @@ Splash has its own desktop app. LLMenuBar is a menu bar app that runs `splash se
 - macOS 26 or later on an Apple silicon Mac.
 - Splash, installed or built separately: the Splash desktop app, the `splash` command installed with `brew install incoai/tap/splash`, or the `splash` executable from a source checkout. See the [Splash project](https://github.com/incoai/splash) for its requirements.
 
-LLMenuBar 0.0.7 is known to work with Splash 1.6.1, 1.7.0, 1.7.1, 1.7.2 and 1.7.3 and may work with newer releases.
+LLMenuBar 0.0.8 is known to work with Splash 1.6.1, 1.7.0, 1.7.1, 1.7.2, 1.7.3 and 1.7.4 and may work with newer releases.
 
 ## Install
 
@@ -97,12 +97,12 @@ The first time LLMenuBar opens, it asks for two things before starting anything:
 The Settings window keeps a draft until you press **Apply**; closing it or pressing **Revert** drops the draft. Applying while Splash is running restarts it so the new command takes effect.
 
 - **General**: the `splash` executable or `Splash.app` and its version, general app behavior, whether the Mac may sleep while the engine answers, extra environment variables for the engine, the command preview, and a way to reset all Splash options.
-- **Model**: Hugging Face or local files; a vision projector and draft folder for local files; a revision, an access token, and a draft repository for Hugging Face; the Hugging Face download location, with free space and whether the chosen model fits; text-only mode; a chat template of your own; and offline mode.
+- **Model**: Hugging Face or local files; a vision projector and draft folder for local files; a revision, an access token, and a draft repository and its revision for Hugging Face; the Hugging Face download location, with free space and whether the chosen model fits; text-only mode; a chat template of your own; and offline mode.
 - **Server**: whether Splash listens on this Mac only, on every network, or on a UNIX socket, the port, extra hostnames and web origins, and the browser chat page.
-- **Memory**: memory and context limits, how long an idle model stays loaded, streaming from the SSD, KV-cache, recurrent-state, cached-state, and activation precision, and Neural Engine use and recalibration.
+- **Memory**: memory and context limits, how long an idle model stays loaded, streaming from the SSD, how 16-bit weights load, KV-cache, recurrent-state, cached-state, and activation precision, and Neural Engine use and recalibration.
 - **SSD Cache**: the cache size, its daily write budget, and whether it is kept across restarts.
 - **API**: the OpenAI and Anthropic endpoints to copy, including this Mac's network names when Splash listens on every network, an optional API key (requested in the browser chat sidebar), and the model names clients may request, including local file names.
-- **Requests**: the thinking effort, for requests that set none or for every request, request limits, how many requests run at once, how the engine schedules them, and sampling defaults for requests that set none.
+- **Requests**: the thinking effort, for requests that set none or for every request, request limits, how long running requests get when the engine stops, how many requests run at once, how the engine schedules them, and sampling defaults for requests that set none.
 - **Diagnostics**: where the log is kept and how large it may grow, and a switch to make the engine record a crash trace.
 
 <p align="center">

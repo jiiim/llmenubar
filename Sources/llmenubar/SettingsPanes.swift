@@ -492,10 +492,27 @@ extension ServerConfiguration.CachedStates {
     }
 }
 
+extension ServerConfiguration.Weights {
+    /// An engine without the option chooses by the kind of file, so it has no
+    /// original default to name.
+    func title(engineHasOption: Bool) -> String {
+        guard self == .standard, !engineHasOption else { return title }
+        return "Engine default"
+    }
+
+    var title: String {
+        switch self {
+        case .standard: return "Engine default (original)"
+        case .auto: return "Auto"
+        }
+    }
+}
+
 extension ServerConfiguration.Activations {
     var title: String {
         switch self {
-        case .standard: return "Engine default (auto)"
+        case .standard: return "Model default"
+        case .auto: return "Auto"
         case .bf16: return "16-bit (BF16)"
         }
     }

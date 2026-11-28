@@ -145,6 +145,11 @@ final class ServerFailureTests: XCTestCase {
             ("Invalid server configuration: This engine has no --sampling-default option. Update the engine, or clear this setting.", .requests),
             ("Invalid server configuration: This engine has no --max-concurrent-requests option. Update the engine, or clear this setting.", .requests),
             ("--recalibrate-ane needs the Neural Engine --disable-ane turns off", .memory),
+            ("Invalid server configuration: This engine has no --weights option. Update the engine, or clear this setting.", .memory),
+            ("Invalid server configuration: This engine has no --activations option. Update the engine, or clear this setting.", .memory),
+            ("Invalid server configuration: This engine has no --shutdown-timeout option. Update the engine, or clear this setting.", .requests),
+            ("Invalid server configuration: This engine has no --draft-revision option. Update the engine, or clear this setting.", .model),
+            ("the model's weights file cannot be read", .model),
         ]
         for (message, pane) in cases {
             XCTAssertEqual(ServerLaunchFailure(message: message, source: .manual).settingsDestination, pane, message)

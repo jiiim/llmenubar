@@ -104,9 +104,14 @@ struct ServerLaunchFailure: Equatable, Identifiable {
         // "model" in passing still opens the pane that can fix it.
         if lowercased.contains("socket") { return .server }
         if lowercased.contains("chat template") { return .model }
-        if lowercased.contains("cached") { return .memory }
+        // The flags, not the words: a bad weights file is about the model.
+        if lowercased.contains("cached") || lowercased.contains("--weights")
+            || lowercased.contains("--activations") {
+            return .memory
+        }
         if lowercased.contains("reasoning") || lowercased.contains("thinking")
-            || lowercased.contains("sampling") || lowercased.contains("concurrent") {
+            || lowercased.contains("sampling") || lowercased.contains("concurrent")
+            || lowercased.contains("--shutdown-timeout") {
             return .requests
         }
         if lowercased.contains("neural engine") || lowercased.contains("calibrat") { return .memory }

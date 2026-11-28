@@ -85,7 +85,7 @@ extension SettingsView {
 
             Section("Command preview") {
                 HStack(alignment: .top, spacing: 6) {
-                    Text(SplashCommand.preview(configuration: draft.normalized()))
+                    Text(SplashCommand.preview(configuration: editor.candidate(from: draft)))
                         .font(.system(.footnote, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                     CopyButton(help: "Copy command (secret values are left out)") { copyCommandPreview() }

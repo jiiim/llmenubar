@@ -187,7 +187,7 @@ struct SettingsView: View {
     }
 
     var hasChanges: Bool {
-        draft.normalized() != server.configurationSnapshot()
+        editor.candidate(from: draft) != server.configurationSnapshot()
     }
 
     var canApply: Bool {
@@ -276,7 +276,7 @@ struct SettingsView: View {
             // running, it is telling the user to do something that is no
             // longer there.
             if statusNoticeIsFailure,
-               errors.isEmpty || newValue.normalized() == server.configurationSnapshot() {
+               errors.isEmpty || editor.candidate(from: newValue) == server.configurationSnapshot() {
                 showNotice("")
             }
             isRefreshingDerivedState = inputs != derivedInputs ||
@@ -510,7 +510,7 @@ struct SettingsView: View {
     func copyCommandPreview() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(
-            SplashCommand.preview(configuration: draft.normalized()),
+            SplashCommand.preview(configuration: editor.candidate(from: draft)),
             forType: .string
         )
     }

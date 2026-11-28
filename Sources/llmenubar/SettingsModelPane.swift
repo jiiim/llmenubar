@@ -62,6 +62,13 @@ extension SettingsView {
                         note: "A DFlash2 draft repository to use instead of the one the engine picks for the model, as owner/repo.",
                         monospaced: true
                     )
+                    textRow(
+                        "Draft revision",
+                        text: $editor.draft.draftRevision,
+                        field: .draftRevision,
+                        prompt: "Default branch",
+                        note: "A branch, tag or commit of the draft repository."
+                    )
                 }
             case .local:
                 Section("Files on this Mac") {

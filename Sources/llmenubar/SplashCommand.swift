@@ -48,6 +48,9 @@ enum SplashCommand {
         if !config.draftModel.isEmpty {
             args += ["--draft-model", PathText.expandingTilde(config.draftModel)]
         }
+        if config.modelSource == .huggingFace {
+            valued("--draft-revision", config.draftRevision, into: &args)
+        }
         if config.languageOnly { args.append("--language-only") }
         if config.offline { args.append("--offline") }
 
@@ -67,6 +70,7 @@ enum SplashCommand {
         valued("--ple-memory", config.pleMemory, into: &args)
         valued("--expert-memory", config.expertMemory, into: &args)
         valued("--sparse-kv-memory", config.sparseKVMemory, into: &args)
+        if let weights = config.weights.argument { args += ["--weights", weights] }
         if let format = config.kvFormat.argument { args += ["--kv-format", format] }
         if let format = config.stateFormat.argument { args += ["--state-format", format] }
         if let storage = config.cachedStates.argument { args += ["--cached-states", storage] }
@@ -76,8 +80,8 @@ enum SplashCommand {
         if let activations = config.activations.argument { args += ["--activations", activations] }
 
         // SSD cache.
-        valued("--max-cache-disk", config.maxCacheDisk, into: &args)
-        valued("--max-cache-disk-writes", config.maxCacheDiskWrites, into: &args)
+        valued("--max-cache-disk", SplashOptionValues.plainWholeNumber(config.maxCacheDisk), into: &args)
+        valued("--max-cache-disk-writes", SplashOptionValues.plainWholeNumber(config.maxCacheDiskWrites), into: &args)
         if config.persistentCache {
             args.append("--persistent-cache")
             if !config.cacheDirectory.isEmpty {
@@ -106,6 +110,7 @@ enum SplashCommand {
         valued("--max-request-size", config.maxRequestSize, into: &args)
         valued("--max-image-pixels", config.maxImagePixels, into: &args)
         valued("--request-timeout", config.requestTimeout, into: &args)
+        valued("--shutdown-timeout", SplashOptionValues.plainWholeNumber(config.shutdownTimeout), into: &args)
         valued("--queue-size", config.queueSize, into: &args)
         valued("--max-concurrent-requests", config.maxConcurrentRequests, into: &args)
         valued("--decode-share", config.decodeShare, into: &args)

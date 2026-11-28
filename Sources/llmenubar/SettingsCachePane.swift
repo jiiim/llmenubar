@@ -20,7 +20,7 @@ extension SettingsView {
                     prompt: "Auto",
                     note: "Auto follows the disk's free space, up to 32G. Use a size such as 16G, or 0 to turn the cache off."
                 )
-                if draft.maxCacheDisk != "0" {
+                if !editor.draftTurnsCacheOff {
                     textRow(
                         "Writes a day",
                         text: $editor.draft.maxCacheDiskWrites,
@@ -31,7 +31,7 @@ extension SettingsView {
                 }
             }
 
-            if draft.maxCacheDisk != "0" {
+            if !editor.draftTurnsCacheOff {
                 Section("Keeping the cache") {
                     Toggle("Keep after stopping", isOn: $editor.draft.persistentCache)
                         .help("The next start of the model goes on from the prompts it kept. Off by default.")

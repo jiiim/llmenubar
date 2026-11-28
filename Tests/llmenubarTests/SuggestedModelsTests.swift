@@ -9,7 +9,7 @@ final class SuggestedModelsTests: XCTestCase {
     private func build(_ version: String) -> SplashBuild {
         SplashBuild(identity: .splash(version: version), serveFlags: [])
     }
-    private let current = SplashBuild(identity: .splash(version: "1.7.3"), serveFlags: [])
+    private let current = SplashBuild(identity: .splash(version: "1.7.4"), serveFlags: [])
 
     func testNothingIsSuggestedBelow24GB() {
         XCTAssertTrue(SuggestedModel.available(physicalMemory: gib(16), build: current).isEmpty)
@@ -56,6 +56,7 @@ final class SuggestedModelsTests: XCTestCase {
         }
         XCTAssertEqual(titles(build("1.7.2")), ["Qwen", "Inkling"])
         XCTAssertEqual(titles(build("1.7.3")), ["Qwen", "Inkling"])
+        XCTAssertEqual(titles(build("1.7.4")), ["Qwen", "Inkling"])
         XCTAssertEqual(titles(build("1.10.0")), ["Qwen", "Inkling"])
         XCTAssertEqual(titles(build("2.0.0")), ["Qwen", "Inkling"])
         XCTAssertEqual(titles(build("1.7.1")), ["Qwen"])

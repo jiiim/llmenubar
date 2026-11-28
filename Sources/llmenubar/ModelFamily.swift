@@ -63,6 +63,21 @@ struct ModelFamilyMemory: Codable, Equatable {
     struct Companions: Codable, Equatable {
         var visionProjector = ""
         var draft = ""
+        var draftRevision = ""
+
+        init(visionProjector: String = "", draft: String = "", draftRevision: String = "") {
+            self.visionProjector = visionProjector
+            self.draft = draft
+            self.draftRevision = draftRevision
+        }
+
+        /// A memory saved before a value was kept reads as blank for it.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            visionProjector = try c.decodeIfPresent(String.self, forKey: .visionProjector) ?? ""
+            draft = try c.decodeIfPresent(String.self, forKey: .draft) ?? ""
+            draftRevision = try c.decodeIfPresent(String.self, forKey: .draftRevision) ?? ""
+        }
     }
 
     private var byFamily: [String: Companions] = [:]
@@ -83,7 +98,9 @@ struct ModelFamilyMemory: Codable, Equatable {
             // A Hugging Face model has no projector file.
             visionProjector: config.modelSource == .local
                 ? config.visionProjectorPath.trimmingCharacters(in: .whitespacesAndNewlines) : "",
-            draft: config.draftModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft: config.draftModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            draftRevision: config.modelSource == .huggingFace
+                ? config.draftRevision.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         )
     }
 
@@ -105,6 +122,7 @@ struct ModelFamilyMemory: Codable, Equatable {
     struct Restoration: Equatable {
         let visionProjector: String
         let draft: String
+        let draftRevision: String
         /// What to tell the user happened.
         let message: String
     }
@@ -112,16 +130,20 @@ struct ModelFamilyMemory: Codable, Equatable {
     func restoration(for family: String, current config: ServerConfiguration.Config) -> Restoration? {
         let target = byFamily[family] ?? Companions()
         let oldProjector = config.visionProjectorPath
-        let oldDraft = config.draftModel
-        guard target.visionProjector != oldProjector || target.draft != oldDraft else { return nil }
+        // A draft and its revision go together, and are reported as the draft.
+        // Local files have no revision, whatever is still saved for the Hub.
+        let oldRevision = config.modelSource == .huggingFace ? config.draftRevision : ""
+        let oldDraft = [config.draftModel, oldRevision]
+        let newDraft = [target.draft, target.draftRevision]
+        guard target.visionProjector != oldProjector || newDraft != oldDraft else { return nil }
 
         var restored: [String] = []
         var cleared: [String] = []
         for (name, old, new) in [
-            ("vision projector", oldProjector, target.visionProjector),
-            ("draft", oldDraft, target.draft),
+            ("vision projector", [oldProjector], [target.visionProjector]),
+            ("draft", oldDraft, newDraft),
         ] where old != new {
-            if new.isEmpty { cleared.append(name) } else { restored.append(name) }
+            if new.allSatisfy(\.isEmpty) { cleared.append(name) } else { restored.append(name) }
         }
         var sentences: [String] = []
         if !restored.isEmpty {
@@ -134,6 +156,7 @@ struct ModelFamilyMemory: Codable, Equatable {
         return Restoration(
             visionProjector: target.visionProjector,
             draft: target.draft,
+            draftRevision: target.draftRevision,
             message: sentences.joined(separator: " ")
         )
     }

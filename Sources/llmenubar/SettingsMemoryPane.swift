@@ -61,6 +61,19 @@ extension SettingsView {
             }
 
             Section("Precision") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Weights", selection: $editor.draft.weights) {
+                        ForEach(ServerConfiguration.Weights.allCases, id: \.self) {
+                            Text($0.title(engineHasOption: derived.build.hasWeightsOption)).tag($0)
+                        }
+                    }
+                    Text("How 16-bit weights load. The original default keeps them as the model's files store them. Auto compresses them to 8 bits, which saves memory and can decode faster, with slightly different output. Splash 1.7.3 and earlier choose by the kind of file.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if let error = validationErrors[.weights] {
+                        validationLabel(error, for: .weights)
+                    }
+                }
                 Picker("KV cache", selection: $editor.draft.kvFormat) {
                     ForEach(ServerConfiguration.KVFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -96,7 +109,7 @@ extension SettingsView {
                     Picker("Activations", selection: $editor.draft.activations) {
                         ForEach(ServerConfiguration.Activations.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
-                    Text("Auto rounds activations to 8 bits where the GPU multiplies them twice as fast (M5 and later) and keeps them 16-bit elsewhere. 16-bit keeps every activation 16-bit, for evaluations and parity.")
+                    Text("The model default is Auto, except for Inkling-2 on Splash 1.7.4 and later, where it is 16-bit. Auto rounds activations to 8 bits where the GPU multiplies them twice as fast (M5 and later) and keeps them 16-bit elsewhere. 16-bit keeps every activation 16-bit, for evaluations and parity.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if let error = validationErrors[.activations] {

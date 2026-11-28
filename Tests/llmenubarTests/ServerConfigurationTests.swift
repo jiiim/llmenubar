@@ -150,6 +150,38 @@ final class ServerConfigurationTests: XCTestCase {
         }
     }
 
+    func testEveryActivationsChoiceIsSavedAndLoaded() throws {
+        for choice in ServerConfiguration.Activations.allCases {
+            var config = ServerConfiguration.Config()
+            config.activations = choice
+            let data = try JSONEncoder().encode(config)
+            XCTAssertEqual(try JSONDecoder().decode(ServerConfiguration.Config.self, from: data).activations, choice)
+        }
+    }
+
+    func testTheOptionsOfSplash174AreSavedAndLoaded() throws {
+        var config = ServerConfiguration.Config()
+        config.weights = .auto
+        config.draftRevision = " v1 "
+        config.shutdownTimeout = " 0 "
+        let normalized = config.normalized()
+        XCTAssertEqual(normalized.draftRevision, "v1")
+        XCTAssertEqual(normalized.shutdownTimeout, "0")
+        let long = String(repeating: "0", count: 40)
+        for (typed, stored) in [("00", "0"), (long, "0"), ("05", "5"), (long + "15", "15"), ("15", "15"), ("", ""), ("2.5", "2.5")] {
+            config.shutdownTimeout = typed
+            XCTAssertEqual(config.normalized().shutdownTimeout, stored, typed)
+        }
+        for (typed, stored) in [("00", "0"), (long, "0"), ("007G", "007G"), ("auto", "auto")] {
+            config.maxCacheDisk = typed
+            config.maxCacheDiskWrites = typed
+            XCTAssertEqual(config.normalized().maxCacheDisk, stored, typed)
+            XCTAssertEqual(config.normalized().maxCacheDiskWrites, stored, typed)
+        }
+        let decoded = try JSONDecoder().decode(ServerConfiguration.Config.self, from: JSONEncoder().encode(normalized))
+        XCTAssertEqual(decoded, normalized)
+    }
+
     func testMissingAndUnreadableKeysFallBackToDefaults() throws {
         let defaults = try makeDefaults()
         let stored = """

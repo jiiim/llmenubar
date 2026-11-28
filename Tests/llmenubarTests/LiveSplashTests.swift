@@ -254,6 +254,55 @@ final class LiveSplashTests: XCTestCase {
         XCTAssertEqual(checked, sampling.count + whole.count + 9 + 2)
     }
 
+    /// Splash accepts every stop grace the app accepts and refuses those past
+    /// its range, and it gets past the other options of 1.7.4. The app offers
+    /// whole seconds only, so it refuses forms Splash would take.
+    ///
+    ///     LLMENUBAR_LIVE_SPLASH=/path/to/splash swift test \
+    ///         --filter LiveSplashTests/testTheOptionsOfSplash174AreTakenAsTheAppSendsThem
+    func testTheOptionsOfSplash174AreTakenAsTheAppSendsThem() throws {
+        guard let splash = ProcessInfo.processInfo.environment["LLMENUBAR_LIVE_SPLASH"]
+        else { throw XCTSkip("set LLMENUBAR_LIVE_SPLASH to run against a real Splash") }
+        guard case .success(let launcher) = SplashLauncher.resolve(path: splash) else {
+            return XCTFail("not a Splash: \(splash)")
+        }
+        var base = ServerConfiguration.Config()
+        base.splashPath = splash
+        base.huggingFaceModel = "owner/does-not-exist:Q4"
+        base.offline = true
+        base.port = 8_793
+        guard SplashDerivedState.compute(for: base).build.serveFlags.contains("--shutdown-timeout") else {
+            throw XCTSkip("this Splash predates the options of 1.7.4")
+        }
+
+        func engineRefuses(_ config: ServerConfiguration.Config) throws -> Bool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: launcher.executable)
+            process.arguments = launcher.leadingArguments + SplashCommand.arguments(configuration: config)
+            process.environment = SplashCommand.launchEnvironment(configuration: config, launcher: launcher)
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            try process.run()
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            return !output.contains("cannot resolve")
+        }
+
+        for (text, refused) in [("0", false), ("00", false), ("1", false), ("05", false), ("15", false),
+                                ("16", true), ("-1", true), ("x", true)] {
+            var config = base
+            config.shutdownTimeout = text
+            XCTAssertEqual(config.validationErrors()[.shutdownTimeout] != nil, refused, "the app, stop grace \(text)")
+            XCTAssertEqual(try engineRefuses(config), refused, "Splash, stop grace \(text)")
+        }
+        var config = base
+        config.weights = .auto
+        config.draftRevision = "main"
+        config.activations = .auto
+        XCTAssertFalse(try engineRefuses(config), "weights, draft revision and activations")
+    }
+
     /// `--host unix:PATH` is a value of an option every Splash lists, so the
     /// app reads support for it from another option that arrived with it. Ask
     /// the real parser: an engine without it fails to bind the host at once; one

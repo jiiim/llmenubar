@@ -69,6 +69,13 @@ extension SettingsView {
                     note: "How long a queued or running request lasts before it ends with an error, such as 30m."
                 )
                 textRow(
+                    "Stop grace seconds",
+                    text: $editor.draft.shutdownTimeout,
+                    field: .shutdownTimeout,
+                    prompt: "5",
+                    note: "How long running requests get to finish when the engine stops, from 0 to 15. 0 ends them at once."
+                )
+                textRow(
                     "Requests at once",
                     text: $editor.draft.queueSize,
                     field: .queueSize,

@@ -124,6 +124,41 @@ final class ModelFamilyTests: XCTestCase {
         XCTAssertEqual(memory.companions(for: "a/b"), .init(visionProjector: "", draft: "owner/draft"))
     }
 
+    func testADraftRevisionGoesWithItsDraft() throws {
+        var config = ServerConfiguration.Config()
+        config.huggingFaceModel = "a/b:Q4"
+        config.draftModel = "owner/draft"
+        config.draftRevision = "v1"
+        var memory = ModelFamilyMemory()
+        memory.record(config)
+
+        var other = config
+        other.huggingFaceModel = "c/d:Q4"
+        let cleared = try XCTUnwrap(memory.restoration(for: "c/d", current: other))
+        XCTAssertEqual(cleared.draftRevision, "")
+        XCTAssertEqual(cleared.message, "Cleared the draft, which belongs to the previous model.")
+
+        other = config
+        other.draftModel = ""
+        other.draftRevision = ""
+        let restored = try XCTUnwrap(memory.restoration(for: "a/b", current: other))
+        XCTAssertEqual(restored.draft, "owner/draft")
+        XCTAssertEqual(restored.draftRevision, "v1")
+        XCTAssertEqual(restored.message, "Restored the draft last used with this model.")
+    }
+
+    func testALeftoverDraftRevisionIsNothingToClearForLocalFiles() {
+        var config = local("/m/New-Model.gguf")
+        config.draftRevision = "v1"
+        XCTAssertNil(ModelFamilyMemory().restoration(for: "new-model", current: config))
+    }
+
+    func testAMemorySavedWithoutADraftRevisionStillLoads() throws {
+        let stored = #"{"byFamily":{"a/b":{"visionProjector":"","draft":"owner/draft"}}}"#
+        let memory = try JSONDecoder().decode(ModelFamilyMemory.self, from: Data(stored.utf8))
+        XCTAssertEqual(memory.companions(for: "a/b"), .init(draft: "owner/draft"))
+    }
+
     func testRoundTrip() throws {
         var memory = ModelFamilyMemory()
         memory.record(local("/m/A-Q4_K_M.gguf", projector: "/m/p.gguf", draft: "/d"))

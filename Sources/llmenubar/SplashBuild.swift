@@ -87,6 +87,10 @@ struct SplashBuild: Equatable, Sendable {
     /// Before 1.7.0 they were stored in `--state-format`'s, 32-bit unless set.
     var hasCachedStatesOption: Bool { supports("--cached-states") }
 
+    /// Whether `--weights` chooses how 16-bit weights load, as from 1.7.4,
+    /// whose default keeps them as stored.
+    var hasWeightsOption: Bool { serveFlags.contains("--weights") }
+
     /// Whether `--host` takes `unix:PATH`. The Splash development build 1.6.2,
     /// and release 1.7.0 after it, added that and `--reasoning-effort`
     /// together, and the help names no value for `--host`, so the second

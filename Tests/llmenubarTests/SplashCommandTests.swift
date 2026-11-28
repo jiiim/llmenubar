@@ -202,6 +202,40 @@ final class SplashCommandTests: XCTestCase {
         XCTAssertFalse(args.contains("--allowed-host"), "a socket has no network names")
     }
 
+    func testTheActivationsChoiceIsSentOnlyWhereOneIsMade() {
+        let expected: [(ServerConfiguration.Activations, [String])] = [
+            (.standard, []), (.auto, ["--activations", "auto"]), (.bf16, ["--activations", "bf16"]),
+        ]
+        for (choice, option) in expected {
+            var config = ServerConfiguration.Config()
+            config.activations = choice
+            let arguments = SplashCommand.arguments(configuration: config)
+            let sent = arguments.firstIndex(of: "--activations").map { Array(arguments[$0...($0 + 1)]) } ?? []
+            XCTAssertEqual(sent, option, "\(choice)")
+        }
+    }
+
+    func testADraftRevisionIsSentForAHubModelOnly() {
+        var config = base()
+        config.draftRevision = "v1"
+        func sent() -> Bool { SplashCommand.arguments(configuration: config).contains("--draft-revision") }
+        XCTAssertTrue(sent(), "also with the draft the engine picks")
+        config.modelSource = .local
+        config.modelPath = "/models/m.gguf"
+        XCTAssertFalse(sent())
+    }
+
+    func testZeroIsSentInOneSpelling() {
+        var config = base()
+        config.shutdownTimeout = "00"
+        config.maxCacheDisk = "000000"
+        config.maxCacheDiskWrites = "00"
+        let arguments = SplashCommand.arguments(configuration: config)
+        for option in ["--shutdown-timeout", "--max-cache-disk", "--max-cache-disk-writes"] {
+            XCTAssertEqual(arguments.firstIndex(of: option).map { arguments[$0 + 1] }, "0", option)
+        }
+    }
+
     func testEveryOptionReachesTheCommandInGroupOrder() {
         var config = base()
         config.offline = true
@@ -215,6 +249,8 @@ final class SplashCommandTests: XCTestCase {
         config.pleMemory = "2G"
         config.expertMemory = "off"
         config.sparseKVMemory = "1200M"
+        config.weights = .auto
+        config.draftRevision = "v1"
         config.kvFormat = .bf16
         config.stateFormat = .bf16
         config.cachedStates = .exact
@@ -233,6 +269,7 @@ final class SplashCommandTests: XCTestCase {
         config.maxRequestSize = "64M"
         config.maxImagePixels = "1048576"
         config.requestTimeout = "30m"
+        config.shutdownTimeout = "10"
         config.queueSize = "8"
         config.maxConcurrentRequests = "6"
         config.applySampling("temperature = 0.7, top_k=40")
@@ -244,14 +281,14 @@ final class SplashCommandTests: XCTestCase {
             // This Mac's own names would otherwise join the allowed hosts.
             SplashCommand.arguments(configuration: config, networkNames: { LocalNetworkNames(hostName: nil, ipv4: nil) }),
             [
-                "serve", "--model", "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M", "--offline",
+                "serve", "--model", "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M", "--draft-revision", "v1", "--offline",
                 "--host", "0.0.0.0", "--port", "8123",
                 "--allowed-host", "mymac.local", "--allowed-host", "other.local",
                 "--allowed-origin", "https://a.example", "--allowed-origin", "*",
                 "--no-webui",
                 "--max-memory", "28G", "--max-context", "100K",
                 "--ple-memory", "2G", "--expert-memory", "off", "--sparse-kv-memory", "1200M",
-                "--kv-format", "bf16", "--state-format", "bf16", "--cached-states", "exact",
+                "--weights", "auto", "--kv-format", "bf16", "--state-format", "bf16", "--cached-states", "exact",
                 "--idle-release", "30m", "--disable-ane", "--activations", "bf16",
                 "--max-cache-disk", "16G", "--max-cache-disk-writes", "200G",
                 "--persistent-cache", "--cache-dir", "/Volumes/cache/splash",
@@ -260,7 +297,7 @@ final class SplashCommandTests: XCTestCase {
                 "--thinking-token-budget", "2048", "--thinking-end-text", "Now the answer.",
                 "--sampling-default", "temperature=0.7", "--sampling-default", "top_k=40",
                 "--max-request-size", "64M", "--max-image-pixels", "1048576",
-                "--request-timeout", "30m", "--queue-size", "8", "--max-concurrent-requests", "6",
+                "--request-timeout", "30m", "--shutdown-timeout", "10", "--queue-size", "8", "--max-concurrent-requests", "6",
                 "--decode-share", "0.25",
                 "--verify-rows", "all", "--allow-idle-sleep",
             ]

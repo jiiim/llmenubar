@@ -50,12 +50,12 @@ enum SettingsPane: String, CaseIterable, Hashable, Identifiable {
         switch field {
         case .splashPath:
             return .general
-        case .huggingFaceModel, .modelPath, .visionProjectorPath, .draftModel, .revision,
+        case .huggingFaceModel, .modelPath, .visionProjectorPath, .draftModel, .revision, .draftRevision,
              .modelCacheDirectory, .huggingFaceToken, .chatTemplatePath:
             return .model
         case .host, .port, .allowedHosts, .allowedOrigins:
             return .server
-        case .maxMemory, .maxContext, .pleMemory, .expertMemory, .sparseKVMemory, .idleRelease, .activations,
+        case .maxMemory, .maxContext, .pleMemory, .expertMemory, .sparseKVMemory, .idleRelease, .weights, .activations,
              .cachedStates, .recalibrateANE:
             return .memory
         case .maxCacheDisk, .maxCacheDiskWrites, .cacheDirectory:
@@ -63,7 +63,7 @@ enum SettingsPane: String, CaseIterable, Hashable, Identifiable {
         case .apiKey, .localModelName, .servedModelNames:
             return .api
         case .reasoningEffort, .thinkingTokenBudget, .thinkingEndText,
-             .maxRequestSize, .maxImagePixels, .requestTimeout, .queueSize, .maxConcurrentRequests, .decodeShare,
+             .maxRequestSize, .maxImagePixels, .requestTimeout, .shutdownTimeout, .queueSize, .maxConcurrentRequests, .decodeShare,
              .samplingTemperature, .samplingTopP, .samplingTopK, .samplingMinP,
              .samplingPresencePenalty, .samplingFrequencyPenalty, .samplingRepetitionPenalty:
             return .requests

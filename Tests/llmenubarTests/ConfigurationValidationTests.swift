@@ -109,7 +109,60 @@ final class ConfigurationValidationTests: XCTestCase {
         config.revision = "main"
         config.modelSource = .local
         config.modelPath = "/models/m.gguf"
-        XCTAssertNotNil(config.validationErrors()[.revision])
+        config.draftRevision = "bad rev"
+        XCTAssertNil(config.validationErrors()[.revision], "local files send no revision")
+        XCTAssertNil(config.validationErrors()[.draftRevision])
+    }
+
+    func testTheWeightsDefaultIsNamedOriginalOnlyWhereTheEngineHasTheOption() {
+        XCTAssertEqual(ServerConfiguration.Weights.standard.title(engineHasOption: true), "Engine default (original)")
+        XCTAssertEqual(ServerConfiguration.Weights.standard.title(engineHasOption: false), "Engine default")
+        XCTAssertEqual(ServerConfiguration.Weights.auto.title(engineHasOption: false), "Auto")
+    }
+
+    func testADraftRevisionIsABranchTagOrCommit() {
+        var config = valid()
+        for good in ["main", "refs/pr/1", "0123abcd"] {
+            config.draftRevision = good
+            XCTAssertNil(config.validationErrors()[.draftRevision], good)
+        }
+        for bad in ["bad rev", "-x"] {
+            config.draftRevision = bad
+            XCTAssertNotNil(config.validationErrors()[.draftRevision], bad)
+        }
+        XCTAssertEqual(SettingsPane.containing(.draftRevision), .model)
+    }
+
+    func testTheStopGraceIsWholeSecondsUpToFifteen() {
+        var config = valid()
+        for good in ["", "0", "00", "1", "5", "05", "15"] {
+            config.shutdownTimeout = good
+            XCTAssertNil(config.validationErrors()[.shutdownTimeout], good)
+        }
+        for bad in ["-1", "+1", "16", "2.5", "10s", "1m", "off", "x"] {
+            config.shutdownTimeout = bad
+            XCTAssertNotNil(config.validationErrors()[.shutdownTimeout], bad)
+        }
+        XCTAssertEqual(SettingsPane.containing(.shutdownTimeout), .requests)
+    }
+
+    func testTheOptionsOfSplash174NeedABuildThatTakesThem() {
+        var derived = SplashDerivedState()
+        derived.build = SplashBuild(identity: .splash(version: "1.7.3"), serveFlags: ["--model", "--port", "--host"])
+        var config = valid()
+        XCTAssertEqual(config.validationErrors(derived: derived), [:], "the defaults need no option")
+
+        config.weights = .auto
+        config.draftRevision = "main"
+        config.shutdownTimeout = "0"
+        let errors = config.validationErrors(derived: derived)
+        XCTAssertEqual(Set(errors.keys), [.weights, .draftRevision, .shutdownTimeout])
+        XCTAssertEqual(SettingsPane.containing(.weights), .memory)
+
+        derived.build = SplashBuild(identity: .splash(version: "1.7.4"), serveFlags: [
+            "--model", "--port", "--host", "--weights", "--draft-revision", "--shutdown-timeout",
+        ])
+        XCTAssertEqual(config.validationErrors(derived: derived), [:])
     }
 
     func testNetworkFields() {
@@ -174,8 +227,8 @@ final class ConfigurationValidationTests: XCTestCase {
         config.expertMemory = "auto"
         config.sparseKVMemory = "1200M"
         config.idleRelease = "off"
-        config.maxCacheDisk = "0"
-        config.maxCacheDiskWrites = "0"
+        config.maxCacheDisk = "00"
+        config.maxCacheDiskWrites = "00"
         config.servedModelNames = "gpt-4o, claude"
         config.thinkingTokenBudget = "0"
         config.maxRequestSize = "128M"
@@ -283,8 +336,10 @@ final class ConfigurationValidationTests: XCTestCase {
         var config = valid()
         XCTAssertEqual(config.validationErrors(derived: derived), [:], "the default needs no option")
 
-        config.activations = .bf16
-        XCTAssertTrue(config.validationErrors(derived: derived)[.activations]?.contains("--activations") == true)
+        for choice in [ServerConfiguration.Activations.auto, .bf16] {
+            config.activations = choice
+            XCTAssertTrue(config.validationErrors(derived: derived)[.activations]?.contains("--activations") == true)
+        }
         XCTAssertEqual(SettingsPane.containing(.activations), .memory)
 
         derived.build = SplashBuild(identity: .splash(version: "1.6.1"), serveFlags: ["--model", "--port", "--host", "--activations"])
